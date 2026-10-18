@@ -8,8 +8,11 @@ const Pitch := 1.0
 const BlockSize := 0.92
 
 ## The piece shapes. `BodyMeshes`, `OutlineMeshes` and `ColliderShapes` have one entry per value.
-enum Shapes { Cube, Sphere, Cone, Cylinder, Glow }
-const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow"]
+## (New shapes go on the end, so a remembered shape keeps meaning the same thing.)
+enum Shapes { Cube, Sphere, Cone, Cylinder, Glow, RoundedCube }
+const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow", "Rounded Cube"]
+## The rounded cube's corner radius, as a fraction of its size (as in BoardTestRK).
+const RoundedCubeRadius := 0.25
 
 ## The Glow piece: a soft ball of light with no surface. A big faint halo plus a small bright core, both camera-facing
 ## quads drawn additively with a radial falloff, and no shadow. Sizes are in cells.
@@ -79,6 +82,11 @@ func SetSpecular(On: bool) -> void:
 		Material.clearcoat_enabled = On
 		Material.clearcoat = 0.9
 		Material.clearcoat_roughness = 0.06
+
+
+## Whether the current shape is one of the two cube-like ones, which stop spinning the moment they touch something.
+func IsCubeLike() -> bool:
+	return CurrentShape == Shapes.Cube or CurrentShape == Shapes.RoundedCube
 
 
 func IsGlow() -> bool:
@@ -225,6 +233,10 @@ func BuildShapes() -> void:
 	NoEdge.size = Vector2.ONE * 0.01
 	CoreMesh = QuadMesh.new()
 	CoreMesh.size = Vector2.ONE * GlowCoreSize
-	BodyMeshes = [Cube, Ball, Cone, Can, Halo]
-	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge]
-	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape]
+	# Rounded cube: a box with rounded edges, its black edge a slightly larger copy, and a collider hugging its shape.
+	var Rounded := RoundedBoxMesh.Build(BlockSize, BlockSize * RoundedCubeRadius)
+	var RoundedEdge := RoundedBoxMesh.Build(BlockSize * Edge, BlockSize * RoundedCubeRadius * Edge)
+	var RoundedShape := Rounded.create_convex_shape(true, false)
+	BodyMeshes = [Cube, Ball, Cone, Can, Halo, Rounded]
+	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge, RoundedEdge]
+	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape, RoundedShape]
