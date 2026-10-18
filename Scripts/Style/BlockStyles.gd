@@ -20,6 +20,9 @@ const GlowTextureSize := 128
 const ConeSegments := 24
 ## How much larger than the piece its black edge is drawn.
 const OutlineScale := 1.05
+## How rough the color materials are: the matte look, and the glossy one with Specular on.
+const MatteRoughness := 0.45
+const SpecularRoughness := 0.14
 
 const Palette: Array[Color] = [
 	Color(0.90, 0.20, 0.20),
@@ -33,6 +36,7 @@ const Palette: Array[Color] = [
 ]
 
 var CurrentShape: int = Shapes.Cube
+var SpecularEnabled: bool = false
 var Materials: Array[StandardMaterial3D] = []
 var OutlineMaterial: StandardMaterial3D
 var BodyMeshes: Array[Mesh] = []
@@ -52,7 +56,7 @@ func _init() -> void:
 	for Tint in Palette:
 		var Material := StandardMaterial3D.new()
 		Material.albedo_color = Tint
-		Material.roughness = 0.45
+		Material.roughness = MatteRoughness
 		Materials.append(Material)
 	BuildGlowMaterials()
 	# The black edges: a slightly larger copy of the piece drawn inside-out, so only a rim of it shows.
@@ -63,6 +67,19 @@ func _init() -> void:
 
 
 # MARK: Using a style
+
+## Glossy, mirror-like pieces (a hard bright highlight, a clear coat, reflections of the sky) when `On`, the matte look
+## otherwise. Applies to every solid shape's color materials - not to the Glow piece, which is only light - and to every
+## piece already on the board, since they share these materials.
+func SetSpecular(On: bool) -> void:
+	SpecularEnabled = On
+	for Material in Materials:
+		Material.roughness = SpecularRoughness if On else MatteRoughness
+		Material.metallic_specular = 1.0 if On else 0.5
+		Material.clearcoat_enabled = On
+		Material.clearcoat = 0.9
+		Material.clearcoat_roughness = 0.06
+
 
 func IsGlow() -> bool:
 	return CurrentShape == Shapes.Glow

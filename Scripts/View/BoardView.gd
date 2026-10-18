@@ -41,6 +41,9 @@ var UserDown: Vector3 = Vector3.DOWN
 var LightningEnabled: bool = true
 ## Counts new games, so something waiting (the lightning) can tell the board it was waiting on has gone.
 var GameNumber: int = 0
+## Whether the Blockers throw off plasma zaps. Set from the controls.
+var BlockerZapsEnabled: bool = true
+var BlockerLights: Array[BlockerLight] = []
 var Busy: bool = false
 var PieceNodes: Dictionary = {}
 var WaitingForVacate: bool = false
@@ -55,6 +58,7 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	for Child in get_children():
 		Child.queue_free()
 	PieceNodes.clear()
+	BlockerLights.clear()
 	if Flyers == null:
 		Flyers = FlyerSystem.new()
 		Flyers.Styles = Styles
@@ -77,7 +81,10 @@ func BuildNodes() -> void:
 	for Col in Model.Width:
 		for Row in Model.Height:
 			if Model.IsBlocker(Col, Row):
-				add_child(BlockerLight.Create(Styles, CellPosition(Col, Row)))
+				var Light := BlockerLight.Create(Styles, CellPosition(Col, Row))
+				Light.ZapsEnabled = BlockerZapsEnabled
+				add_child(Light)
+				BlockerLights.append(Light)
 				continue
 			var Piece := Model.GetPiece(Col, Row)
 			if Piece != null:
@@ -103,6 +110,14 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	add_child(Node)
 	PieceNodes[Piece.Id] = Node
 	return Node
+
+
+## Turns the Blockers' plasma zaps on or off.
+func SetBlockerZaps(On: bool) -> void:
+	BlockerZapsEnabled = On
+	for Light in BlockerLights:
+		if is_instance_valid(Light):
+			Light.ZapsEnabled = On
 
 
 ## Changes the shape of every piece on the board and of every piece dealt from now on.

@@ -6,6 +6,11 @@ const SkyColor := Color(0.42, 0.42, 0.44)
 const FloorSize := 80.0
 const FloorTiles := 40.0
 
+## The environment and the sun, kept so Specular can change how they light the pieces.
+static var SceneEnvironment: Environment
+static var Sun: DirectionalLight3D
+static var ReflectionSky: Sky
+
 
 ## The sky, the sun (with shadows), and the camera. Returns the camera.
 static func BuildEnvironment(Parent: Node) -> Camera3D:
@@ -20,10 +25,12 @@ static func BuildEnvironment(Parent: Node) -> Camera3D:
 	Sky.glow_intensity = 0.9
 	Sky.glow_hdr_threshold = 1.2
 	Sky.glow_bloom = 0.1
+	SceneEnvironment = Sky
 	var WorldEnv := WorldEnvironment.new()
 	WorldEnv.environment = Sky
 	Parent.add_child(WorldEnv)
-	var Sun := DirectionalLight3D.new()
+	ReflectionSky = MakeReflectionSky()
+	Sun = DirectionalLight3D.new()
 	Sun.rotation_degrees = Vector3(-40, 25, 0)
 	Sun.light_energy = 1.1
 	Sun.shadow_enabled = true
@@ -32,6 +39,26 @@ static func BuildEnvironment(Parent: Node) -> Camera3D:
 	CameraNode.fov = 45.0
 	Parent.add_child(CameraNode)
 	return CameraNode
+
+
+## What glossy pieces reflect: a soft sky, bright above and darker below. It is only used when Specular is on, and is
+## never drawn as the background (that stays the plain color).
+static func MakeReflectionSky() -> Sky:
+	var Material := ProceduralSkyMaterial.new()
+	Material.sky_top_color = Color(0.45, 0.6, 0.9)
+	Material.sky_horizon_color = Color(0.9, 0.9, 0.95)
+	Material.ground_horizon_color = Color(0.5, 0.5, 0.55)
+	Material.ground_bottom_color = Color(0.12, 0.12, 0.15)
+	var Result := Sky.new()
+	Result.sky_material = Material
+	return Result
+
+
+## Specular lighting: with it on, the sun's highlight is stronger and the sky is reflected in glossy surfaces.
+static func SetSpecular(On: bool) -> void:
+	Sun.light_specular = 2.0 if On else 1.0
+	SceneEnvironment.sky = ReflectionSky if On else null
+	SceneEnvironment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if On else Environment.REFLECTION_SOURCE_DISABLED
 
 
 ## A dark checkerboard with a solid slab under it, its top at y = 0, for the removed pieces to land on.

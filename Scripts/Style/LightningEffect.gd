@@ -7,8 +7,8 @@ extends Node3D
 ## How long the bolts crackle at full strength, then how long they take to fade out.
 const Duration := 0.17
 const FadeTime := 0.07
-## The bolts take a new random shape this often (seconds).
-const RegenInterval := 0.04
+## The bolts take a new random shape this often (seconds; 0 is every frame, so they crackle smoothly).
+const RegenInterval := 0.0
 ## Rounds of midpoint displacement per bolt: 2^N segments.
 const Subdivisions := 5
 ## How far a bolt strays from a straight line, as a fraction of its length.

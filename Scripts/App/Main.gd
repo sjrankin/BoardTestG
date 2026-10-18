@@ -45,9 +45,11 @@ func _ready() -> void:
 	var ShapeIndex := int(GameSettings.Load("BlockShape", 0))
 	var Speed := clampf(float(GameSettings.Load("RemovalSpeed", 1.0)), ControlBar.MinRemovalSpeed, ControlBar.MaxRemovalSpeed)
 	var Lightning := bool(GameSettings.Load("Lightning", true))
+	var BlockerZaps := bool(GameSettings.Load("BlockerZaps", true))
+	var Specular := bool(GameSettings.Load("Specular", false))
 	Bar = ControlBar.new()
 	add_child(Bar)
-	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockStyles.ShapeNames)
+	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, BlockStyles.ShapeNames)
 	Bar.ShapeSelected.connect(OnShapeSelected)
 	Bar.ShufflePressed.connect(func() -> void: View.ShuffleNow())
 	Bar.RecenterPressed.connect(OnRecenterPressed)
@@ -55,8 +57,13 @@ func _ready() -> void:
 	Bar.BoardSetPressed.connect(OnBoardSet)
 	Bar.RemovalSpeedChanged.connect(OnRemovalSpeedChanged)
 	Bar.LightningToggled.connect(OnLightningToggled)
+	Bar.BlockerZapsToggled.connect(OnBlockerZapsToggled)
+	Bar.SpecularToggled.connect(OnSpecularToggled)
 	View.RemovalSpeed = Speed
 	View.LightningEnabled = Lightning
+	View.BlockerZapsEnabled = BlockerZaps
+	View.Styles.SetSpecular(Specular)
+	SceneSetup.SetSpecular(Specular)
 	View.SetBlockShape(ShapeIndex)
 	View.NewGame(Width, Height, Colors, Blockers)
 
@@ -105,6 +112,17 @@ func OnBoardSet(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	GameSettings.Save("Colors", Colors)
 	GameSettings.Save("Blockers", Blockers)
 	View.NewGame(Width, Height, Colors, Blockers)
+
+
+func OnSpecularToggled(On: bool) -> void:
+	View.Styles.SetSpecular(On)
+	SceneSetup.SetSpecular(On)
+	GameSettings.Save("Specular", On)
+
+
+func OnBlockerZapsToggled(On: bool) -> void:
+	View.SetBlockerZaps(On)
+	GameSettings.Save("BlockerZaps", On)
 
 
 func OnLightningToggled(On: bool) -> void:

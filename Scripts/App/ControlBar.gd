@@ -10,6 +10,8 @@ signal AutoRotateToggled(On: bool)
 signal BoardSetPressed(Width: int, Height: int, Colors: int, Blockers: int)
 signal RemovalSpeedChanged(Value: float)
 signal LightningToggled(On: bool)
+signal BlockerZapsToggled(On: bool)
+signal SpecularToggled(On: bool)
 
 const MinRemovalSpeed := 0.25
 const MaxRemovalSpeed := 3.0
@@ -20,6 +22,8 @@ const BlockersRange := Vector2i(0, 20)
 var AttractCheck: CheckButton
 var AutoRotateCheck: CheckButton
 var LightningCheck: CheckButton
+var BlockerZapsCheck: CheckButton
+var SpecularCheck: CheckButton
 var ScoreLabel: Label
 var FpsLabel: Label
 var ShapePicker: OptionButton
@@ -31,37 +35,40 @@ var SpeedSlider: HSlider
 var SpeedLabel: Label
 
 
-## Builds the controls with their starting values.
-func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, ShapeNames: Array[String]) -> void:
+## Builds the controls with their starting values. They sit in a row along the bottom that wraps onto more lines when the
+## window is too narrow for one, and a label always stays with the control it names.
+func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, ShapeNames: Array[String]) -> void:
 	BuildReadouts()
-	var Controls := HBoxContainer.new()
-	Controls.add_theme_constant_override("separation", 14)
-	Controls.anchor_left = 0.0
-	Controls.anchor_top = 1.0
-	Controls.anchor_bottom = 1.0
-	Controls.position = Vector2(16, -52)
-	add_child(Controls)
-	AddLabel(Controls, "Block Shape")
+	var Controls := BuildControlArea()
+	var ShapeGroup := AddGroup(Controls)
+	AddLabel(ShapeGroup, "Block Shape")
 	ShapePicker = OptionButton.new()
 	for Name in ShapeNames:
 		ShapePicker.add_item(Name)
 	ShapePicker.selected = ShapeIndex
 	ShapePicker.item_selected.connect(func(Index: int) -> void: ShapeSelected.emit(Index))
-	Controls.add_child(ShapePicker)
+	ShapeGroup.add_child(ShapePicker)
 	AddButton(Controls, "Shuffle", func() -> void: ShufflePressed.emit())
 	AddButton(Controls, "Recenter", func() -> void: RecenterPressed.emit())
 	AutoRotateCheck = AddCheck(Controls, "Auto Rotate")
 	AutoRotateCheck.toggled.connect(func(On: bool) -> void: AutoRotateToggled.emit(On))
 	AttractCheck = AddCheck(Controls, "Attract Mode")
-	LightningCheck = AddCheck(Controls, "Lightning")
+	LightningCheck = AddCheck(Controls, "Removal Lightning")
 	LightningCheck.button_pressed = Lightning
 	LightningCheck.toggled.connect(func(On: bool) -> void: LightningToggled.emit(On))
+	BlockerZapsCheck = AddCheck(Controls, "Blocker Zaps")
+	BlockerZapsCheck.button_pressed = BlockerZaps
+	BlockerZapsCheck.toggled.connect(func(On: bool) -> void: BlockerZapsToggled.emit(On))
+	SpecularCheck = AddCheck(Controls, "Specular")
+	SpecularCheck.button_pressed = Specular
+	SpecularCheck.toggled.connect(func(On: bool) -> void: SpecularToggled.emit(On))
 	WidthField = AddField(Controls, "Width", Width, WidthRange)
 	HeightField = AddField(Controls, "Height", Height, WidthRange)
 	ColorsField = AddField(Controls, "Colors", Colors, ColorsRange)
 	BlockersField = AddField(Controls, "Blockers", Blockers, BlockersRange)
 	AddButton(Controls, "Set", OnSetPressed)
-	AddLabel(Controls, "Removal Speed")
+	var SpeedGroup := AddGroup(Controls)
+	AddLabel(SpeedGroup, "Removal Speed")
 	SpeedSlider = HSlider.new()
 	SpeedSlider.min_value = MinRemovalSpeed
 	SpeedSlider.max_value = MaxRemovalSpeed
@@ -70,9 +77,33 @@ func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int,
 	SpeedSlider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	SpeedSlider.value = RemovalSpeed
 	SpeedSlider.value_changed.connect(OnSpeedChanged)
-	Controls.add_child(SpeedSlider)
-	SpeedLabel = AddLabel(Controls, "")
+	SpeedGroup.add_child(SpeedSlider)
+	SpeedLabel = AddLabel(SpeedGroup, "")
 	OnSpeedChanged(SpeedSlider.value)
+
+
+## The area along the bottom of the window the controls live in: full width, flowing onto extra lines as needed, with its
+## last line at the bottom. The containers around it ignore the mouse, so a click beside the controls still reaches the board.
+func BuildControlArea() -> HFlowContainer:
+	var Root := Control.new()
+	Root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	Root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(Root)
+	var Margins := MarginContainer.new()
+	Margins.set_anchors_preset(Control.PRESET_FULL_RECT)
+	Margins.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	Margins.add_theme_constant_override("margin_left", 16)
+	Margins.add_theme_constant_override("margin_right", 16)
+	Margins.add_theme_constant_override("margin_bottom", 10)
+	Root.add_child(Margins)
+	var Controls := HFlowContainer.new()
+	Controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	Controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	Controls.size_flags_vertical = Control.SIZE_SHRINK_END
+	Controls.add_theme_constant_override("h_separation", 14)
+	Controls.add_theme_constant_override("v_separation", 6)
+	Margins.add_child(Controls)
+	return Controls
 
 
 func SetScore(Score: int) -> void:
@@ -104,9 +135,19 @@ func AddReadout(Parent: Control, Title: String, Value: String) -> Label:
 	return ValueLabel
 
 
+## A little row that keeps a label and its control together when the controls wrap.
+func AddGroup(Parent: Control) -> HBoxContainer:
+	var Group := HBoxContainer.new()
+	Group.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	Group.add_theme_constant_override("separation", 8)
+	Parent.add_child(Group)
+	return Group
+
+
 func AddLabel(Parent: Control, Text: String) -> Label:
 	var NewLabel := Label.new()
 	NewLabel.text = Text
+	NewLabel.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	Parent.add_child(NewLabel)
 	return NewLabel
 
@@ -127,12 +168,13 @@ func AddCheck(Parent: Control, Text: String) -> CheckButton:
 
 
 func AddField(Parent: Control, Title: String, Value: int, Limits: Vector2i) -> SpinBox:
-	AddLabel(Parent, Title)
+	var Group := AddGroup(Parent)
+	AddLabel(Group, Title)
 	var Field := SpinBox.new()
 	Field.min_value = Limits.x
 	Field.max_value = Limits.y
 	Field.value = Value
-	Parent.add_child(Field)
+	Group.add_child(Field)
 	return Field
 
 
