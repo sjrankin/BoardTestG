@@ -4,8 +4,10 @@ extends RefCounted
 ## See ../BoardTestRK/BoardTestRKRules.md: groups of 3+ same-colored pieces clear, the rest fall (straight down,
 ## and diagonally only around Blockers), and every gap is refilled from above.
 ##
-## Cells are addressed (Col, Row), Row 0 at the top. `Cells` also holds `Pad` rows above the board (Row < 0) where
-## new pieces queue before falling in.
+## Cells are addressed (Col, Row), Row 0 at the top. Gravity can point any of four ways (`GravityDir`) - it is down as
+## the user sees the board, however it is turned - so everything about falling is worked out in a "virtual" frame in which
+## gravity always points toward increasing virtual rows (`ToReal` maps a virtual cell to a real one). New pieces queue
+## in `Queue` at virtual rows above the board (VRow < 0) before falling in.
 
 const MinimumGroupSize := 3
 const Neighbors: Array[Vector2i] = [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
@@ -31,8 +33,13 @@ var BlockerCount: int
 var Score: int = 0
 var Rng := RandomNumberGenerator.new()
 var Pad: int
-## Cells[Col][Row + Pad] -> PieceData or null.
+## Cells[Col][Row] -> PieceData or null.
 var Cells: Array = []
+## Which way pieces fall, in real cell steps: (0, 1) is toward higher rows (down the board), (0, -1) up, (1, 0) toward
+## higher columns, (-1, 0) toward lower ones. Set before a drop.
+var GravityDir: Vector2i = Vector2i(0, 1)
+## New pieces waiting off the board: Vector2i(VCol, VRow < 0) -> PieceData.
+var Queue: Dictionary = {}
 ## Blockers[Col][Row] -> bool. Placed once; never moved by a shuffle or a redeal.
 var Blockers: Array = []
 var NextId: int = 1
@@ -48,7 +55,7 @@ func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: i
 	Height = maxi(NewHeight, 3)
 	ColorCount = clampi(NewColorCount, 3, 8)
 	BlockerCount = maxi(NewBlockerCount, 0)
-	Pad = Height
+	Pad = maxi(Width, Height)
 	if Seed != 0:
 		Rng.seed = Seed
 	else:
@@ -59,37 +66,89 @@ func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: i
 
 # MARK: Cell access
 
-func InColumns(Col: int) -> bool:
-	return Col >= 0 and Col < Width
+func InBoard(Col: int, Row: int) -> bool:
+	return Col >= 0 and Col < Width and Row >= 0 and Row < Height
 
 
 func GetPiece(Col: int, Row: int) -> PieceData:
-	if not InColumns(Col) or Row < -Pad or Row >= Height:
+	if not InBoard(Col, Row):
 		return null
-	return Cells[Col][Row + Pad]
+	return Cells[Col][Row]
 
 
 func SetPiece(Col: int, Row: int, Piece: PieceData) -> void:
-	Cells[Col][Row + Pad] = Piece
+	Cells[Col][Row] = Piece
 
 
 func IsBlocker(Col: int, Row: int) -> bool:
-	if not InColumns(Col) or Row < 0 or Row >= Height:
+	if not InBoard(Col, Row):
 		return false
 	return Blockers[Col][Row]
 
 
-## A cell a piece could move into right now: on the board or in the queue above it, not a Blocker, and empty.
-func CanEnter(Col: int, Row: int) -> bool:
-	if not InColumns(Col) or Row < -Pad or Row >= Height:
+# MARK: Virtual cells (gravity always toward increasing VRow)
+
+func VirtualWidth() -> int:
+	return Width if GravityDir.y != 0 else Height
+
+
+func VirtualHeight() -> int:
+	return Height if GravityDir.y != 0 else Width
+
+
+## The real cell for a virtual one; not clamped, so a queued cell (VRow < 0) maps to a place just off the board.
+func ToReal(VCol: int, VRow: int) -> Vector2i:
+	if GravityDir == Vector2i(0, 1):
+		return Vector2i(VCol, VRow)
+	if GravityDir == Vector2i(0, -1):
+		return Vector2i(VCol, Height - 1 - VRow)
+	if GravityDir == Vector2i(1, 0):
+		return Vector2i(VRow, VCol)
+	return Vector2i(Width - 1 - VRow, VCol)
+
+
+func VInRange(VCol: int, VRow: int) -> bool:
+	return VCol >= 0 and VCol < VirtualWidth() and VRow >= -Pad and VRow < VirtualHeight()
+
+
+func VGet(VCol: int, VRow: int) -> PieceData:
+	if not VInRange(VCol, VRow):
+		return null
+	if VRow < 0:
+		return Queue.get(Vector2i(VCol, VRow))
+	var Real := ToReal(VCol, VRow)
+	return Cells[Real.x][Real.y]
+
+
+func VSet(VCol: int, VRow: int, Piece: PieceData) -> void:
+	if VRow < 0:
+		if Piece == null:
+			Queue.erase(Vector2i(VCol, VRow))
+		else:
+			Queue[Vector2i(VCol, VRow)] = Piece
+		return
+	var Real := ToReal(VCol, VRow)
+	Cells[Real.x][Real.y] = Piece
+
+
+func VBlocker(VCol: int, VRow: int) -> bool:
+	if VCol < 0 or VCol >= VirtualWidth() or VRow < 0 or VRow >= VirtualHeight():
 		return false
-	return not IsBlocker(Col, Row) and GetPiece(Col, Row) == null
+	var Real := ToReal(VCol, VRow)
+	return Blockers[Real.x][Real.y]
 
 
-## Whether a Blocker sits at or above `Row` in the column, so nothing can ever be refilled into that cell from above.
-func ColumnSealed(Col: int, Row: int) -> bool:
-	for K in range(0, mini(Row, Height - 1) + 1):
-		if IsBlocker(Col, K):
+## A cell a piece could move into right now: on the board or in the queue off it, not a Blocker, and empty.
+func CanEnter(VCol: int, VRow: int) -> bool:
+	if not VInRange(VCol, VRow):
+		return false
+	return not VBlocker(VCol, VRow) and VGet(VCol, VRow) == null
+
+
+## Whether a Blocker sits at or above `VRow` in the column, so nothing can ever be refilled into that cell from above.
+func ColumnSealed(VCol: int, VRow: int) -> bool:
+	for K in range(0, mini(VRow, VirtualHeight() - 1) + 1):
+		if VBlocker(VCol, K):
 			return true
 	return false
 
@@ -106,9 +165,10 @@ func RandomKind() -> int:
 
 func ClearCells() -> void:
 	Cells = []
+	Queue.clear()
 	for Col in Width:
 		var Column: Array = []
-		Column.resize(Height + Pad)
+		Column.resize(Height)
 		Cells.append(Column)
 
 
@@ -198,7 +258,7 @@ func ForceGroup() -> void:
 func GroupAt(Col: int, Row: int) -> Array[Vector2i]:
 	var Result: Array[Vector2i] = []
 	var Start := GetPiece(Col, Row)
-	if Start == null or Row < 0:
+	if Start == null:
 		return Result
 	var Seen := {Vector2i(Col, Row): true}
 	var Stack: Array[Vector2i] = [Vector2i(Col, Row)]
@@ -207,7 +267,7 @@ func GroupAt(Col: int, Row: int) -> Array[Vector2i]:
 		Result.append(Cell)
 		for Offset in Neighbors:
 			var Next := Cell + Offset
-			if Next.y < 0 or Seen.has(Next):
+			if Seen.has(Next):
 				continue
 			var Other := GetPiece(Next.x, Next.y)
 			if Other != null and Other.Kind == Start.Kind:
@@ -266,31 +326,32 @@ func RecordMove(Piece: PieceData, From: Vector2i, To: Vector2i) -> void:
 	Paths[Piece.Id].append(To)
 
 
+## Moves a piece between virtual cells, recording the path as virtual cells (they become real ones in `Drop`).
 func MovePiece(Piece: PieceData, From: Vector2i, To: Vector2i) -> void:
-	SetPiece(From.x, From.y, null)
-	SetPiece(To.x, To.y, Piece)
+	VSet(From.x, From.y, null)
+	VSet(To.x, To.y, Piece)
 	RecordMove(Piece, From, To)
 
 
 ## One piece's move, if it has one: straight down if the cell below is open; otherwise diagonally, but only when a
 ## Blocker is directly below it or the cell it would enter is in a column nothing can be refilled into from above.
-func TryMove(Piece: PieceData, Col: int, Row: int) -> bool:
-	if CanEnter(Col, Row + 1):
-		MovePiece(Piece, Vector2i(Col, Row), Vector2i(Col, Row + 1))
+func TryMove(Piece: PieceData, VCol: int, VRow: int) -> bool:
+	if CanEnter(VCol, VRow + 1):
+		MovePiece(Piece, Vector2i(VCol, VRow), Vector2i(VCol, VRow + 1))
 		return true
-	if Row < 0:
+	if VRow < 0:
 		return false
-	var BlockerBelow := IsBlocker(Col, Row + 1)
-	var Key := Vector2i(Col, Row)
+	var BlockerBelow := VBlocker(VCol, VRow + 1)
+	var Key := Vector2i(VCol, VRow)
 	var Flip: bool = FlipToggles.get(Key, false)
 	var Sides: Array = [1, -1] if Flip else [-1, 1]
 	for Side in Sides:
-		var TargetCol: int = Col + Side
-		if not CanEnter(TargetCol, Row + 1):
+		var TargetCol: int = VCol + Side
+		if not CanEnter(TargetCol, VRow + 1):
 			continue
-		if BlockerBelow or ColumnSealed(TargetCol, Row + 1):
+		if BlockerBelow or ColumnSealed(TargetCol, VRow + 1):
 			FlipToggles[Key] = not Flip
-			MovePiece(Piece, Key, Vector2i(TargetCol, Row + 1))
+			MovePiece(Piece, Key, Vector2i(TargetCol, VRow + 1))
 			return true
 	return false
 
@@ -301,50 +362,49 @@ func Settle() -> int:
 	var Changed := true
 	while Changed:
 		Changed = false
-		for Row in range(Height - 2, -Pad - 1, -1):
-			for Col in Width:
-				var Piece := GetPiece(Col, Row)
-				if Piece != null and TryMove(Piece, Col, Row):
+		for VRow in range(VirtualHeight() - 2, -Pad - 1, -1):
+			for VCol in VirtualWidth():
+				var Piece := VGet(VCol, VRow)
+				if Piece != null and TryMove(Piece, VCol, VRow):
 					Changed = true
 					MoveCount += 1
 	return MoveCount
 
 
-## New pieces queue above each column, one per open cell that can be refilled from above. A column with a
-## Blocker on row 0 gets none. Returns how many pieces were created.
+## New pieces queue off the board (on the side gravity pulls away from), one per open cell that can be refilled from
+## there. A column with a Blocker on its first row gets none. Returns how many pieces were created.
 func SpawnAbove() -> int:
 	var Spawned := 0
-	for Col in Width:
+	for VCol in VirtualWidth():
 		var Needed := 0
-		for Row in Height:
-			if not ColumnSealed(Col, Row) and GetPiece(Col, Row) == null:
+		for VRow in VirtualHeight():
+			if not ColumnSealed(VCol, VRow) and VGet(VCol, VRow) == null:
 				Needed += 1
 		Needed = mini(Needed, Pad)
 		for Index in Needed:
 			var Piece := NewPiece(RandomKind())
-			var Cell := Vector2i(Col, -1 - Index)
-			SetPiece(Cell.x, Cell.y, Piece)
+			var Cell := Vector2i(VCol, -1 - Index)
+			VSet(Cell.x, Cell.y, Piece)
 			Paths[Piece.Id] = [Cell]
 			PathPieces[Piece.Id] = Piece
 			Spawned += 1
 	return Spawned
 
 
-## Removes any piece still queued above the board once everything has settled. Spawning counts each column's open cells
+## Removes any piece still queued off the board once everything has settled. Spawning counts each column's open cells
 ## up front, and a piece resting on a Blocker can step sideways into a neighboring column's gap, so a column can be
 ## sent one piece more than it has room for. That extra piece never reaches the board.
 func DiscardQueued() -> void:
-	for Col in Width:
-		for Row in range(-Pad, 0):
-			var Piece := GetPiece(Col, Row)
-			if Piece != null:
-				SetPiece(Col, Row, null)
-				Paths.erase(Piece.Id)
-				PathPieces.erase(Piece.Id)
+	for Cell in Queue.keys():
+		var Piece: PieceData = Queue[Cell]
+		Paths.erase(Piece.Id)
+		PathPieces.erase(Piece.Id)
+	Queue.clear()
 
 
-## Closes every gap: existing pieces fall, new ones queue above and fall in, until nothing more moves. Returns
-## [{Piece, Path: Array[Vector2i]}] for every piece that moved or was created (a new piece's path starts above the board).
+## Closes every gap: existing pieces fall (toward `GravityDir`), new ones queue off the opposite edge and fall in, until
+## nothing more moves. Returns [{Piece, Path: Array[Vector2i]}] for every piece that moved or was created, with the path
+## in real cells - a new piece's path starts just off the board.
 func Drop() -> Array:
 	Paths.clear()
 	PathPieces.clear()
@@ -356,7 +416,10 @@ func Drop() -> Array:
 	DiscardQueued()
 	var Result: Array = []
 	for Id in Paths:
-		Result.append({"Piece": PathPieces[Id], "Path": Paths[Id]})
+		var RealPath: Array = []
+		for Cell in Paths[Id]:
+			RealPath.append(ToReal(Cell.x, Cell.y))
+		Result.append({"Piece": PathPieces[Id], "Path": RealPath})
 	return Result
 
 

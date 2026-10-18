@@ -12,12 +12,29 @@ ported: Add mode (drag swaps), the idle hint, the rounded cube / diamond / ellip
 
 ## Layout
 
-- `Scripts/BoardModel.gd` - the rules, no nodes. Cells are (Col, Row), Row 0 at the top; `Pad` rows above the board
-  hold queued new pieces. `Drop()` returns each moved piece with its path of cells.
-- `Scripts/BoardView.gd` - draws the model, animates drops (same speed for every piece; the longest drop takes 0.35 s),
-  launches removed pieces as `RigidBody3D`s, waits for them to leave before the refill drops.
-- `Scripts/Main.gd` - builds the camera, light, floor and controls; also the `--capture` mode below.
+Scripts are grouped by job, each file small and about one thing:
+
+- `Scripts/Model/BoardModel.gd` - the rules, no nodes. Cells are (Col, Row), Row 0 at the top. Falling is worked out in
+  a "virtual" frame where gravity always points to higher rows (`ToReal` maps back); `Queue` holds new pieces off the
+  board. `Drop()` returns each moved piece with its path of real cells.
+- `Scripts/Style/` - how things look and what they collide as. `BlockStyles.gd` (the shapes: mesh, black-edge twin,
+  collider; the color and Glow materials; `MakeVisual`/`ApplyShape`), `BlockerLight.gd` (the pulsing indigo Blocker), `LightningEffect.gd` (jagged re-jittering bolts joining a cleared group, plus a flash; plays for `LightningLead` before the pieces fly out, toggle "Lightning"),
+  `PhysicsLayers.gd` (collision layers).
+- `Scripts/View/BoardView.gd` - draws the model, taps and turns, animates drops (same speed for every piece; the longest
+  drop takes 0.35 s), refills and shuffles. `Scripts/View/FlyerSystem.gd` - removed pieces as `RigidBody3D`s (launch,
+  gravity, fade, the stand-ins that block a piece's own gap).
+- `Scripts/App/` - `Main.gd` (wires it together; mouse input), `ControlBar.gd` (on-screen controls, reports by signals),
+  `SceneSetup.gd` (sky, light, camera, floor), `GameSettings.gd` (what is remembered), `CaptureRunner.gd` (the
+  `--capture` mode and the other startup options below).
 - `Tests/TestBoardModel.gd` - headless rule checks.
+
+## Turning the board
+
+`BoardView` is the board's pivot (its middle): `Yaw` about the world's vertical, then `Tilt` about the board's own
+horizontal axis, so no part of it can dip below the floor. Gravity stays world-down. Cells are in the board's own
+space (`CellPosition`), taps are ray-cast into that space, and removed pieces live in `FlyerRoot` (world space, a sibling
+of the board) so they do not turn with it. Gravity on the board is down *as the user sees it*, however the board is turned (unlike BoardTestRK, whose 2D board always falls along its own down): before each drop `GravityFromUser` takes the camera's screen-down into the board's space and rounds it to one of four grid directions (`BoardModel.GravityDir`); new pieces queue off the opposite edge.
+Drag to turn (a press that moves more than a few pixels is a turn, not a tap), Recenter, or Auto Rotate.
 
 ## Naming and style
 
