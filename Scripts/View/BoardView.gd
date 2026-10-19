@@ -185,13 +185,14 @@ func CrackleLightning(Leaving: Array[Dictionary]) -> void:
 		Leaving.clear()
 
 
-## Drops the removed pieces and starts waiting for them to leave their cells.
+## Pops the removed pieces out of the board's front face and starts waiting for them to leave their cells.
 func SendFlying(Leaving: Array[Dictionary]) -> void:
 	for Entry in Leaving:
 		var Node: Node3D = Entry["Node"]
 		if not is_instance_valid(Node):
 			continue
-		Flyers.Launch(Entry["Kind"], Node.global_position)
+		Flyers.Launch(Entry["Kind"], Node.global_position, global_basis)
+		Flyers.AddOriginBlocker(self, Node.position)
 		Node.queue_free()
 	WaitingForVacate = true
 	VacateClock = 0.0
@@ -265,6 +266,7 @@ func GravityFromUser() -> Vector2i:
 
 
 func StartDrop() -> void:
+	Flyers.ClearOriginBlockers()
 	Model.GravityDir = GravityFromUser()
 	var Moves := Model.Drop()
 	if Moves.is_empty():

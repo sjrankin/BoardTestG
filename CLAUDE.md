@@ -32,9 +32,12 @@ Scripts are grouped by job, each file small and about one thing:
 
 `BoardView` is the board's pivot (its middle): `Yaw` about the world's vertical, then `Tilt` about the board's own
 horizontal axis, so no part of it can dip below the floor. Gravity stays world-down. Cells are in the board's own
-space (`CellPosition`), taps are ray-cast into that space, and removed pieces live in `FlyerRoot` (world space, a sibling
-of the board) so they do not turn with it. Gravity on the board is down *as the user sees it*, however the board is turned (unlike BoardTestRK, whose 2D board always falls along its own down): before each drop `GravityFromUser` takes the camera's screen-down into the board's space and rounds it to one of four grid directions (`BoardModel.GravityDir`); new pieces queue off the opposite edge.
+space (`CellPosition`), taps are ray-cast into that space, and removed pieces live in `FlyerSystem` (world space, a sibling
+of the board) so they do not turn with it. A removed piece always falls straight down in the world - the way gravity pulls,
+the shortest way to the floor, through whatever is beneath it - whatever way the board is turned. Gravity on the board is down *as the user sees it*, however the board is turned (unlike BoardTestRK, whose 2D board always falls along its own down): before each drop `GravityFromUser` takes the camera's screen-down into the board's space and rounds it to one of four grid directions (`BoardModel.GravityDir`); new pieces queue off the opposite edge.
 Drag to turn (a press that moves more than a few pixels is a turn, not a tap), Recenter, or Auto Rotate.
+
+**Removal rule (2D board only):** removed pieces pop out of the board's own front face (+Z) whichever way the board is turned, then fall under gravity. This is specific to the 2D board; a future 3D board in this project should launch each piece out of the face it was on, as BoardTestRK's 3D shapes do.
 
 ## Naming and style
 
