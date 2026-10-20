@@ -44,6 +44,12 @@ var GameNumber: int = 0
 ## Whether the Blockers throw off plasma zaps. Set from the controls.
 var BlockerZapsEnabled: bool = true
 var BlockerLights: Array[BlockerLight] = []
+## The idle hint (see `IdleHint`), and whether Attract Mode is playing (no hints then). Set by the scene.
+var Hint := IdleHint.new()
+## The joins of the three joined shapes (see `JoinSystem`), and the ids of pieces that are not at rest (they have none).
+var Joins := JoinSystem.new()
+var MovingIds: Dictionary = {}
+var AttractActive: bool = false
 var Busy: bool = false
 var PieceNodes: Dictionary = {}
 var WaitingForVacate: bool = false
@@ -69,9 +75,21 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	PendingTweens = 0
 	GameNumber += 1
 	Model = BoardModel.new(Width, Height, Colors, Blockers)
+	Hint.Clear()
+	MovingIds.clear()
+	Joins.Model = Model
+	Joins.Styles = Styles
+	Joins.PieceNodes = PieceNodes
+	Hint.Model = Model
+	Hint.Styles = Styles
+	Hint.PieceNodes = PieceNodes
+	Hint.IdleTime = 0.0
+	# The specks that make Godot compile the hint's shaders now, just behind the middle of the board.
+	Hint.WarmUp(self, Vector3(0, 0, -0.6))
 	position = Vector3(0, Height / 2.0 + 0.5, 0)
 	ApplyRotation()
 	BuildNodes()
+	Joins.Update(MovingIds)
 	Busy = false
 	ScoreChanged.emit(0)
 	BoardRebuilt.emit()
@@ -112,6 +130,12 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	return Node
 
 
+## Recomputes the joins: after a shape change (so a new joined shape gets its joins, and a plain one loses them).
+func RefreshJoins() -> void:
+	if Model != null:
+		Joins.Update(MovingIds)
+
+
 ## Turns the Blockers' plasma zaps on or off.
 func SetBlockerZaps(On: bool) -> void:
 	BlockerZapsEnabled = On
@@ -122,6 +146,8 @@ func SetBlockerZaps(On: bool) -> void:
 
 ## Changes the shape of every piece on the board and of every piece dealt from now on.
 func SetBlockShape(NewShape: int) -> void:
+	Hint.Clear()
+	call_deferred("RefreshJoins")
 	Styles.CurrentShape = clampi(NewShape, 0, BlockStyles.Shapes.size() - 1)
 	for Id in PieceNodes:
 		var Node: Node3D = PieceNodes[Id]
@@ -147,6 +173,9 @@ func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
 	var Point := Origin + Direction * T
 	var Col := floori(Point.x / BlockStyles.Pitch + Model.Width / 2.0)
 	var Row := floori(Model.Height / 2.0 - Point.y / BlockStyles.Pitch)
+	# A tap that lands on a piece of the board takes any showing hint away (even one that clears no group).
+	if Model.GetPiece(Col, Row) != null:
+		Hint.Dismiss()
 	TapCell(Col, Row)
 
 
@@ -166,6 +195,9 @@ func TapCell(Col: int, Row: int) -> void:
 		PieceNodes.erase(Piece.Id)
 		if Node != null:
 			Leaving.append({"Node": Node, "Kind": Piece.Kind})
+			Joins.Strip(Node)
+	# Whatever was joined to a removed piece is on its own again at once.
+	Joins.Update(MovingIds)
 	if LightningEnabled and not Leaving.is_empty():
 		await CrackleLightning(Leaving)
 	SendFlying(Leaving)
@@ -236,6 +268,8 @@ func RecenterStep(Progress: float, StartYaw: float, StartTilt: float) -> void:
 
 
 func _process(Delta: float) -> void:
+	if Model != null:
+		Hint.Tick(Delta, not Busy and not AttractActive)
 	if AutoRotate:
 		AutoClock += Delta
 		Yaw = wrapf(Yaw + AutoYawRate * Delta, -PI, PI)
@@ -279,7 +313,11 @@ func StartDrop() -> void:
 		Longest = maxf(Longest, PathLength(Move["Path"]))
 	var Speed := maxf(Longest, 1.0) / FallDuration
 	for Move in Moves:
+		MovingIds[Move["Piece"].Id] = true
+	for Move in Moves:
 		AnimateMove(Move["Piece"], Move["Path"], Speed)
+	# Everything that is about to move lets go of its joins now; they come back as each piece lands.
+	Joins.Update(MovingIds)
 	if PendingTweens == 0:
 		FinishDrop()
 
@@ -303,13 +341,15 @@ func AnimateMove(Piece: BoardModel.PieceData, Path: Array, Speed: float) -> void
 		var Length := Vector2(Path[Index] - Path[Index - 1]).length() * BlockStyles.Pitch
 		Walk.tween_property(Node, "position", CellPosition(Step.x, Step.y), Length / Speed)
 	PendingTweens += 1
-	Walk.finished.connect(OnMoveFinished)
+	Walk.finished.connect(OnMoveFinished.bind(Piece.Id))
 	if IsNew:
 		var Grow := create_tween()
 		Grow.tween_property(Node, "scale", Vector3.ONE, PathLength(Path) / Speed)
 
 
-func OnMoveFinished() -> void:
+func OnMoveFinished(Id: int) -> void:
+	MovingIds.erase(Id)
+	Joins.Update(MovingIds)
 	PendingTweens -= 1
 	if PendingTweens <= 0:
 		PendingTweens = 0
@@ -339,6 +379,8 @@ func Recover() -> void:
 					var Node := AddPieceNode(Piece, CellPosition(Col, Row))
 					Node.scale = Vector3.ONE * 0.01
 					create_tween().tween_property(Node, "scale", Vector3.ONE, 0.4)
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		get_tree().create_timer(0.45).timeout.connect(func() -> void: Busy = false)
 		return
 	AnimateShuffle(Result["Moves"])
@@ -347,6 +389,10 @@ func Recover() -> void:
 ## Every piece flies to its new cell in an arc toward the camera, turning once on the way and landing upright.
 func AnimateShuffle(Moves: Array) -> void:
 	PendingShuffles = 0
+	# Every shuffling piece lets go of its joins while it flies; they all come back together once the shuffle has finished.
+	for Move in Moves:
+		MovingIds[Move["Piece"].Id] = true
+	Joins.Update(MovingIds)
 	for Move in Moves:
 		var Node: Node3D = PieceNodes.get(Move["Piece"].Id)
 		if Node == null:
@@ -359,6 +405,8 @@ func AnimateShuffle(Moves: Array) -> void:
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		Flight.tween_callback(OnShuffleLanded.bind(Node))
 	if PendingShuffles == 0:
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		Busy = false
 
 
@@ -375,6 +423,8 @@ func OnShuffleLanded(Node: Node3D) -> void:
 	PendingShuffles -= 1
 	if PendingShuffles <= 0:
 		PendingShuffles = 0
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		Busy = false
 
 

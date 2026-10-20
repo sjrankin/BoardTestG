@@ -8,6 +8,8 @@ const DefaultHeight := 11
 const DefaultColors := 5
 const DefaultBlockers := 0
 const AttractDelay := 0.25
+## The frame-rate limit a phone or tablet starts with (per second).
+const DefaultMobileFrameRate := 60
 ## The 3D scene is drawn at least this many pixels tall before being scaled down to the window, whatever the window's
 ## size: a small window gets more supersampling, a window already this tall gets none.
 const TargetRenderHeight := 2400.0
@@ -47,9 +49,13 @@ func _ready() -> void:
 	var Lightning := bool(GameSettings.Load("Lightning", true))
 	var BlockerZaps := bool(GameSettings.Load("BlockerZaps", true))
 	var Specular := bool(GameSettings.Load("Specular", false))
+	# A phone or tablet (which may run at 120 Hz) gets a 60 per second limit unless the user picks otherwise: drawing
+	# faster only makes the device warm and drains the battery. Elsewhere there is no limit.
+	var FrameRate := int(GameSettings.Load("FrameRate", DefaultMobileFrameRate if OS.has_feature("mobile") else 0))
+	Engine.max_fps = FrameRate
 	Bar = ControlBar.new()
 	add_child(Bar)
-	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, BlockStyles.ShapeNames)
+	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, BlockStyles.ShapeNames)
 	Bar.ShapeSelected.connect(OnShapeSelected)
 	Bar.ShufflePressed.connect(func() -> void: View.ShuffleNow())
 	Bar.RecenterPressed.connect(OnRecenterPressed)
@@ -59,6 +65,8 @@ func _ready() -> void:
 	Bar.LightningToggled.connect(OnLightningToggled)
 	Bar.BlockerZapsToggled.connect(OnBlockerZapsToggled)
 	Bar.SpecularToggled.connect(OnSpecularToggled)
+	Bar.FrameRateChanged.connect(OnFrameRateChanged)
+	Bar.ScreenshotPressed.connect(TakeScreenshot)
 	View.RemovalSpeed = Speed
 	View.LightningEnabled = Lightning
 	View.BlockerZapsEnabled = BlockerZaps
@@ -119,6 +127,26 @@ func OnBoardSet(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	View.NewGame(Width, Height, Colors, Blockers)
 
 
+## Saves the game's picture (without the on-screen controls) as a PNG in the Pictures folder, named with the date and time.
+func TakeScreenshot() -> void:
+	Bar.visible = false
+	await RenderingServer.frame_post_draw
+	var Picture := get_viewport().get_texture().get_image()
+	Bar.visible = true
+	var Folder := OS.get_system_dir(OS.SYSTEM_DIR_PICTURES)
+	if Folder.is_empty():
+		Folder = OS.get_user_data_dir()
+	var Stamp := Time.get_datetime_string_from_system().replace(":", "-").replace("T", " ")
+	var Path := "%s/BoardTestG %s.png" % [Folder, Stamp]
+	var Result := Picture.save_png(Path)
+	print("Screenshot ", "saved to " + Path if Result == OK else "failed (%d)" % Result)
+
+
+func OnFrameRateChanged(Limit: int) -> void:
+	Engine.max_fps = Limit
+	GameSettings.Save("FrameRate", Limit)
+
+
 func OnSpecularToggled(On: bool) -> void:
 	View.Styles.SetSpecular(On)
 	SceneSetup.SetSpecular(On)
@@ -143,7 +171,25 @@ func OnRemovalSpeedChanged(Value: float) -> void:
 
 # MARK: Input and per-frame
 
+## What counts as the player being there, for the idle hint's clock: a click or wheel turn, a drag (the mouse moving with a
+## button held), a key, or a touch. The mouse merely moving with nothing pressed does not. None of it removes a hint that is
+## already showing - only a tap on a piece of the board does (`BoardView.HandleTapRay`).
+func _input(Event: InputEvent) -> void:
+	var Counts := false
+	if Event is InputEventMouseButton or Event is InputEventKey or Event is InputEventScreenTouch or Event is InputEventScreenDrag:
+		Counts = true
+	elif Event is InputEventMouseMotion and Event.button_mask != 0:
+		Counts = true
+	if Counts:
+		View.Hint.RecordActivity()
+
+
 func _unhandled_input(Event: InputEvent) -> void:
+	# While the Settings window is open the board behind it ignores the mouse: no taps, turns or zoom.
+	if Bar.Overlay.visible:
+		Pressed = false
+		Dragging = false
+		return
 	if Event is InputEventMouseButton:
 		if Event.button_index == MOUSE_BUTTON_LEFT:
 			if Event.pressed:
@@ -172,6 +218,7 @@ func _unhandled_input(Event: InputEvent) -> void:
 
 func _process(Delta: float) -> void:
 	View.UserDown = -CameraNode.global_basis.y
+	View.AttractActive = Bar.AttractCheck.button_pressed
 	Bar.SetFps(int(Engine.get_frames_per_second()))
 	if Bar.AttractCheck.button_pressed and not View.Busy:
 		AttractClock += Delta

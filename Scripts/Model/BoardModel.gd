@@ -296,6 +296,21 @@ func PlayableGroups() -> Array:
 	return FindGroups().filter(func(Group: Array) -> bool: return Group.size() >= MinimumGroupSize)
 
 
+## The group to suggest: the largest of the playable groups; among equal ones, the one lowest on the board (the highest row).
+## Empty if there is none.
+func LargestGroup() -> Array[Vector2i]:
+	var Best: Array[Vector2i] = []
+	var BestLowest := -1
+	for Group in PlayableGroups():
+		var Lowest := 0
+		for Cell in Group:
+			Lowest = maxi(Lowest, Cell.y)
+		if Group.size() > Best.size() or (Group.size() == Best.size() and Lowest > BestLowest):
+			Best.assign(Group)
+			BestLowest = Lowest
+	return Best
+
+
 func HasPlayableGroup() -> bool:
 	return not PlayableGroups().is_empty()
 

@@ -35,11 +35,14 @@ static func Build(Size: float, Radius: float, Steps: int = 6) -> ArrayMesh:
 		for Row in Lines.size() - 1:
 			for Column in Lines.size() - 1:
 				var Corners: Array[Vector3] = []
+				var UVs: Array[Vector2] = []
 				for Offset in [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(0, 1)]:
 					var Spot := Normal * Half + AxisU * Lines[Column + Offset.x] + AxisV * Lines[Row + Offset.y]
 					Corners.append(Rounded(Spot, Inner, Radius))
-				AddTriangle(Tool, Corners[0], Corners[1], Corners[2], Inner)
-				AddTriangle(Tool, Corners[0], Corners[2], Corners[3], Inner)
+					# Each face is mapped flat across the whole 0..1 square, so a pattern (the hint's checkerboard) shows on every face.
+					UVs.append(Vector2((Lines[Column + Offset.x] + Half) / Size, 1.0 - (Lines[Row + Offset.y] + Half) / Size))
+				AddTriangle(Tool, [Corners[0], Corners[1], Corners[2]], [UVs[0], UVs[1], UVs[2]], Inner)
+				AddTriangle(Tool, [Corners[0], Corners[2], Corners[3]], [UVs[0], UVs[2], UVs[3]], Inner)
 	return Tool.commit()
 
 
@@ -50,17 +53,18 @@ static func Rounded(Spot: Vector3, Inner: float, Radius: float) -> Vector3:
 	return Core + (Away.normalized() * Radius if Away.length() > 0.00001 else Vector3.ZERO)
 
 
-## One triangle with smooth normals (the direction away from the inner box), wound so it faces outward.
-static func AddTriangle(Tool: SurfaceTool, A: Vector3, B: Vector3, C: Vector3, Inner: float) -> void:
-	var Facing := (B - A).cross(C - A)
-	var Outward := (A + B + C) / 3.0
+## One triangle (`Corners` and their `UVs`) with smooth normals (the direction away from the inner box), wound so it faces outward.
+static func AddTriangle(Tool: SurfaceTool, Corners: Array[Vector3], UVs: Array[Vector2], Inner: float) -> void:
+	var Facing := (Corners[1] - Corners[0]).cross(Corners[2] - Corners[0])
+	var Outward := (Corners[0] + Corners[1] + Corners[2]) / 3.0
+	var Order: Array[int] = [0, 1, 2]
 	# Godot draws the clockwise side of a triangle, so the winding's cross product must point inward.
 	if Facing.dot(Outward) > 0.0:
-		var Swap := B
-		B = C
-		C = Swap
-	for Corner in [A, B, C]:
+		Order = [0, 2, 1]
+	for Index in Order:
+		var Corner := Corners[Index]
 		var Core: Vector3 = Corner.clamp(Vector3.ONE * -Inner, Vector3.ONE * Inner)
 		var Direction: Vector3 = Corner - Core
 		Tool.set_normal(Direction.normalized() if Direction.length() > 0.00001 else Corner.normalized())
+		Tool.set_uv(UVs[Index])
 		Tool.add_vertex(Corner)

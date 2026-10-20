@@ -8,7 +8,7 @@ BoardTestRK moves here. For now: the 2D board only, cubes only, Subtract mode (t
 The game rules are the same as BoardTestRK's. Read `../BoardTestRK/BoardTestRKRules.md` first. This project covers
 its 2D-board parts: groups, removal, gravity, refill, Blockers, no-moves recovery, and the Fly Away effect
 (here real rigid-body physics: pieces fall to the floor, bounce off the board and each other, then fade). Not yet
-ported: Add mode (drag swaps), the idle hint, the rounded cube / diamond / ellipsoid / extruded-letter / joined shapes, sounds, the cube/sphere/solid boards. Block shapes done: Cube, Sphere, Cone, Cylinder (`BuildShapes` in BoardView.gd; a shape is a mesh, a black-edge twin and a collider).
+ported: Add mode (drag swaps), the idle hint, the rounded cube / diamond / ellipsoid / extruded-letter / joined shapes, sounds, the cube/sphere/solid boards. Block shapes done: Cube, Sphere, Cone, Cylinder, Glow, Rounded Cube, Joined Cubes / Joined Spheres (from BoardTestRK's Joined Squares / Circles) and Joined Cylinders (new) (`BuildShapes` in BoardView.gd; a shape is a mesh, a black-edge twin and a collider).
 
 ## Layout
 
@@ -20,12 +20,12 @@ Scripts are grouped by job, each file small and about one thing:
 - `Scripts/Style/` - how things look and what they collide as. `BlockStyles.gd` (the shapes: mesh, black-edge twin,
   collider; the color and Glow materials; `MakeVisual`/`ApplyShape`), `BlockerLight.gd` (the pulsing indigo Blocker), `LightningEffect.gd` (jagged re-jittering bolts joining a cleared group, plus a flash; plays for `LightningLead` before the pieces fly out, toggle "Lightning"),
   `PhysicsLayers.gd` (collision layers).
-- `Scripts/View/BoardView.gd` - draws the model, taps and turns, animates drops (same speed for every piece; the longest
+- `Scripts/View/IdleHint.gd` - the idle hint (from BoardTestRK): after 20 s with no input, not in Attract Mode and not while busy, the largest playable group (ties: lowest on the board) gets a 5x5 black-and-white unlit checkerboard; a hint stays until a piece on the board is tapped (`BoardView.HandleTapRay` calls `Hint.Dismiss`); other input only restarts the idle clock (`Main._input` calls `Hint.RecordActivity`). Not shown for the Glow shape. `Scripts/View/JoinSystem.gd` - the joined shapes: same-colour neighbours that touch and are both at rest are joined (cubes grow to meet each other; spheres/cylinders get bridges), moving or removed pieces lose their joins, they come back on landing; `BoardView` calls `Joins.Update(MovingIds)` on tap, drop, landing and shuffle. `Scripts/View/BoardView.gd` - draws the model, taps and turns, animates drops (same speed for every piece; the longest
   drop takes 0.35 s), refills and shuffles. `Scripts/View/FlyerSystem.gd` - removed pieces as `RigidBody3D`s (launch,
   gravity, fade, the stand-ins that block a piece's own gap).
-- `Scripts/App/` - `Main.gd` (wires it together; mouse input), `ControlBar.gd` (on-screen controls, reports by signals),
+- `Scripts/App/` - `Main.gd` (wires it together; mouse input), `ControlBar.gd` (score/FPS, the gear button at the top right and the grouped, touch-sized Settings window it opens; reports by signals), `GearButton.gd` (the drawn gear), `CameraButton.gd` (Mac only, under the gear: `Main.TakeScreenshot` hides the controls and saves a PNG to ~/Pictures),
   `SceneSetup.gd` (sky, light, camera, floor), `GameSettings.gd` (what is remembered), `CaptureRunner.gd` (the
-  `--capture` mode and the other startup options below).
+  `--capture` mode and the other startup options below; `--settings` opens the Settings window in a capture).
 - `Tests/TestBoardModel.gd` - headless rule checks.
 
 ## Turning the board
@@ -44,7 +44,7 @@ Drag to turn (a press that moves more than a few pixels is a turn, not a tap), R
 `iOS/` holds the Godot iOS export as an Xcode project (product name XBoardTest, team 4BB235M4GL); see `iOS/README.md`. Run it
 on a real iPhone, not the Simulator (the 4.7.2 template's simulator library has no arm64 code, which shows up as a missing
 `_main`). The folder has a `.gdignore`; its big generated parts are git-ignored. On iOS the scene is drawn at the screen's own
-size with 4x MSAA (`UpdateSuperSampling` in Main.gd), and the project is landscape.
+size with 4x MSAA (`UpdateSuperSampling` in Main.gd), and the project is landscape. A phone/tablet starts with a 60 per second frame-rate limit (Settings > Performance; `Engine.max_fps`; 0 = no limit elsewhere), since an iPad Pro would otherwise run at 120 and run warm.
 
 ## Naming and style
 

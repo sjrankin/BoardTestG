@@ -134,14 +134,32 @@ func AllVacated() -> bool:
 
 func StartFade(Flyer: Dictionary) -> void:
 	Flyer["Fading"] = true
-	var Fading: Array = [Flyer["Tint"], Flyer["Edge"]]
-	if Flyer["Core"] != null:
-		Fading.append(Flyer["Core"])
+	var Body := Flyer["Tint"] as StandardMaterial3D
+	var Edge := Flyer["Edge"] as StandardMaterial3D
+	# The piece's own shape is drawn with a depth pre-pass, so the nearer parts of a see-through piece don't flicker as the
+	# sort order between its triangles changes, and its black edge shell (a slightly bigger copy, drawn inside-out) is drawn
+	# first, behind it.
+	Body.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS
+	Body.render_priority = 1
+	Edge.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	Edge.render_priority = 0
 	var FadeTween := create_tween()
 	FadeTween.set_parallel(true)
-	for Material: StandardMaterial3D in Fading:
-		Material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		FadeTween.tween_property(Material, "albedo_color:a", 0.0, FadeDuration)
+	FadeTween.tween_property(Body, "albedo_color:a", 0.0, FadeDuration)
+	# The black edge fades quickly (the first third): left to fade with the body it shows through it as a dark cast over the
+	# whole piece, which then lifts - a visible flash.
+	FadeTween.tween_property(Edge, "albedo_color:a", 0.0, FadeDuration * 0.3)
+	if Flyer["Core"] != null:
+		var Core := Flyer["Core"] as StandardMaterial3D
+		Core.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		FadeTween.tween_property(Core, "albedo_color:a", 0.0, FadeDuration)
+	# The shiny highlight does not thin out with the transparency on its own - it stays a bright spot on an otherwise faded
+	# piece - so the shine (the sun's highlight and the glossy coat, from Specular) is faded out first, in the first 40% of the fade.
+	FadeTween.tween_property(Body, "metallic_specular", 0.0, FadeDuration * 0.4)
+	FadeTween.tween_property(Body, "roughness", 1.0, FadeDuration * 0.4)
+	if Body.clearcoat_enabled:
+		FadeTween.tween_property(Body, "clearcoat", 0.0, FadeDuration * 0.4)
+		FadeTween.tween_property(Body, "clearcoat_roughness", 1.0, FadeDuration * 0.4)
 	FadeTween.chain().tween_callback(Flyer["Body"].queue_free)
 
 

@@ -9,8 +9,8 @@ const BlockSize := 0.92
 
 ## The piece shapes. `BodyMeshes`, `OutlineMeshes` and `ColliderShapes` have one entry per value.
 ## (New shapes go on the end, so a remembered shape keeps meaning the same thing.)
-enum Shapes { Cube, Sphere, Cone, Cylinder, Glow, RoundedCube }
-const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow", "Rounded Cube"]
+enum Shapes { Cube, Sphere, Cone, Cylinder, Glow, RoundedCube, JoinedCubes, JoinedSpheres, JoinedCylinders }
+const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow", "Rounded Cube", "Joined Cubes", "Joined Spheres", "Joined Cylinders"]
 ## The rounded cube's corner radius, as a fraction of its size (as in BoardTestRK).
 const RoundedCubeRadius := 0.25
 
@@ -86,7 +86,12 @@ func SetSpecular(On: bool) -> void:
 
 ## Whether the current shape is one of the two cube-like ones, which stop spinning the moment they touch something.
 func IsCubeLike() -> bool:
-	return CurrentShape == Shapes.Cube or CurrentShape == Shapes.RoundedCube
+	return CurrentShape == Shapes.Cube or CurrentShape == Shapes.RoundedCube or CurrentShape == Shapes.JoinedCubes
+
+
+## Whether the current shape is one of the three whose same-colour neighbours are joined (`JoinSystem`).
+func IsJoined() -> bool:
+	return CurrentShape == Shapes.JoinedCubes or CurrentShape == Shapes.JoinedSpheres or CurrentShape == Shapes.JoinedCylinders
 
 
 func IsGlow() -> bool:
@@ -237,6 +242,7 @@ func BuildShapes() -> void:
 	var Rounded := RoundedBoxMesh.Build(BlockSize, BlockSize * RoundedCubeRadius)
 	var RoundedEdge := RoundedBoxMesh.Build(BlockSize * Edge, BlockSize * RoundedCubeRadius * Edge)
 	var RoundedShape := Rounded.create_convex_shape(true, false)
-	BodyMeshes = [Cube, Ball, Cone, Can, Halo, Rounded]
-	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge, RoundedEdge]
-	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape, RoundedShape]
+	# The three "joined" shapes look like a cube, a sphere and a cylinder (their own joins are added by `JoinSystem`).
+	BodyMeshes = [Cube, Ball, Cone, Can, Halo, Rounded, Cube, Ball, Can]
+	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge, RoundedEdge, CubeEdge, BallEdge, CanEdge]
+	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape, RoundedShape, CubeBox, BallShape, CanShape]
