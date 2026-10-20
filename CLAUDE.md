@@ -39,6 +39,13 @@ Drag to turn (a press that moves more than a few pixels is a turn, not a tap), R
 
 **Removal rule (2D board only):** removed pieces pop out of the board's own front face (+Z) whichever way the board is turned, then fall under gravity. This is specific to the 2D board; a future 3D board in this project should launch each piece out of the face it was on, as BoardTestRK's 3D shapes do.
 
+## iOS
+
+`iOS/` holds the Godot iOS export as an Xcode project (product name XBoardTest, team 4BB235M4GL); see `iOS/README.md`. Run it
+on a real iPhone, not the Simulator (the 4.7.2 template's simulator library has no arm64 code, which shows up as a missing
+`_main`). The folder has a `.gdignore`; its big generated parts are git-ignored. On iOS the scene is drawn at the screen's own
+size with 4x MSAA (`UpdateSuperSampling` in Main.gd), and the project is landscape.
+
 ## Naming and style
 
 Same owner conventions as the other projects: PascalCase for everything that is not a Godot API name (functions,

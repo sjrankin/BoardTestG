@@ -78,6 +78,11 @@ func _ready() -> void:
 ## edge smoothing (MSAA) alone is not enough when the scene is drawn at a low resolution, so the scene is drawn
 ## larger than the window when the window is small, and scaled down - supersampling.
 func UpdateSuperSampling() -> void:
+	# A phone's GPU can't afford drawing the scene at twice the screen's size (nor 8x MSAA): draw it at the screen's own size.
+	if OS.has_feature("ios"):
+		get_viewport().scaling_3d_scale = 1.0
+		get_viewport().msaa_3d = Viewport.MSAA_4X
+		return
 	var PixelHeight := float(maxi(DisplayServer.window_get_size().y, 1))
 	get_viewport().scaling_3d_scale = clampf(TargetRenderHeight / PixelHeight, 1.0, MaxSuperSampling)
 

@@ -1,3 +1,25 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# macOS
+.DS_Store
+
+# Anything that comes from Xcode or from an Xcode export is never uploaded (the big frameworks are rebuilt by exporting again)
+*.xcframework/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+*.xcarchive
+*.ipa
+*.dSYM/
+*.pck
+
+# The generated iOS export folder: everything in it is ignored except our own notes and scripts
+/iOS/*
+!/iOS/README.md
+!/iOS/patch_project.py
+!/iOS/.gdignore

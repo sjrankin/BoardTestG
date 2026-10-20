@@ -18,10 +18,10 @@ config/icon="res://icon.svg"
 [display]
 
 window/size/viewport_width=1920
-window/dpi/allow_hidpi=true
 window/size/viewport_height=1200
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+window/handheld/orientation=0
 
 [physics]
 
@@ -31,5 +31,6 @@ window/stretch/aspect="expand"
 
 rendering_device/driver.windows="d3d12"
 renderer/rendering_method="mobile"
+textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=3
 anti_aliasing/quality/screen_space_aa=1
