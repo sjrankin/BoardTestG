@@ -14,6 +14,7 @@ extends Node
 ##   --hint          with --capture, show the idle hint right away (frame 25) and save shots at 20 and 35
 ##   --shot          with --capture, press the screenshot button at frame 25 and save a normal shot at 35 (to see the button)
 ##   --explode       start with the Explode removal effect (flat shards)
+##   --effect=N      start with removal effect N (0 fly away, 1 mini me, 2 explode, 3 disappear, 4 spin and shrink, 5 spin then vanish)
 ##   --minime        start with the Mini Me removal effect
 ##   --burst         with --capture, also save a screenshot every few frames from frame 120 to 260 (to catch an effect)
 
@@ -55,6 +56,8 @@ static func FromCommandLine(TheView, TheBar: ControlBar) -> CaptureRunner:
 			TheView.ApplyRotation()
 		elif Argument == "--lightning":
 			LightningRequested = true
+		elif Argument.begins_with("--effect="):
+			TheView.RemovalEffect = int(Argument.trim_prefix("--effect="))
 		elif Argument == "--explode":
 			TheView.RemovalEffect = BoardView.RemovalEffects.Explode
 		elif Argument == "--minime":

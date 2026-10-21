@@ -39,8 +39,10 @@ var AutoClock: float = 0.0
 var UserDown: Vector3 = Vector3.DOWN
 ## Whether lightning plays across a group as it is cleared. Set from the controls.
 var LightningEnabled: bool = true
-## How removed pieces leave: Fly Away (pop out, fall, fade) Mini Me (burst into at least 10 fast small copies) or Explode (shatter into flat shards, much faster). Set from the controls.
-enum RemovalEffects { FlyAway, MiniMe, Explode }
+## How removed pieces leave: Fly Away (pop out, fall, fade), Mini Me (burst into at least 10 fast small copies), Explode (shatter into
+## flat shards, much faster), or one of the three that play in place (`InPlaceRemoval`): Disappear, Spin and Shrink, Spin then Vanish.
+## (New ones go on the end, so a remembered choice keeps meaning the same thing.) Set from the controls.
+enum RemovalEffects { FlyAway, MiniMe, Explode, Disappear, SpinShrink, SpinVanish }
 var RemovalEffect: int = RemovalEffects.FlyAway
 ## Counts new games, so something waiting (the lightning) can tell the board it was waiting on has gone.
 var GameNumber: int = 0
@@ -59,6 +61,8 @@ var WaitingForVacate: bool = false
 var VacateClock: float = 0.0
 var PendingTweens: int = 0
 var PendingShuffles: int = 0
+## How many in-place removal effects are still playing; a refill waits for them.
+var InPlaceActive: int = 0
 
 
 # MARK: Game lifecycle
@@ -76,6 +80,7 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	Flyers.Reset()
 	WaitingForVacate = false
 	PendingTweens = 0
+	InPlaceActive = 0
 	GameNumber += 1
 	Model = BoardModel.new(Width, Height, Colors, Blockers)
 	Hint.Clear()
@@ -226,6 +231,11 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 		var Node: Node3D = Entry["Node"]
 		if not is_instance_valid(Node):
 			continue
+		if RemovalEffect >= RemovalEffects.Disappear:
+			# Plays where it stands; the piece is freed when the effect is over.
+			InPlaceActive += 1
+			InPlaceRemoval.Play(self, Node, RemovalEffect, OnInPlaceDone.bind(GameNumber))
+			continue
 		if RemovalEffect == RemovalEffects.Explode:
 			Flyers.Explode(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinShardsPerPiece, FlyerSystem.MaxShardsPerPiece))
 		elif RemovalEffect == RemovalEffects.MiniMe:
@@ -238,6 +248,11 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 		Node.queue_free()
 	WaitingForVacate = true
 	VacateClock = 0.0
+
+
+func OnInPlaceDone(Game: int) -> void:
+	if Game == GameNumber:
+		InPlaceActive = maxi(InPlaceActive - 1, 0)
 
 
 ## Attract Mode's move: the largest playable group; among groups of the same size, the one closest on average to the bottom
@@ -328,7 +343,7 @@ func _physics_process(Delta: float) -> void:
 	# The refill waits until every removed piece has left its cell (or a timeout), on the pieces' own clock.
 	if WaitingForVacate:
 		VacateClock += Delta * RemovalSpeed
-		if Flyers.AllVacated() or VacateClock > FlyerSystem.VacateTimeout:
+		if (Flyers.AllVacated() and InPlaceActive == 0) or VacateClock > FlyerSystem.VacateTimeout:
 			WaitingForVacate = false
 			StartDrop()
 

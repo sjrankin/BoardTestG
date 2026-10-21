@@ -51,6 +51,8 @@ on a real iPhone, not the Simulator (the 4.7.2 template's simulator library has 
 `_main`). The folder has a `.gdignore`; its big generated parts are git-ignored. On iOS the scene is drawn at the screen's own
 size with 4x MSAA (`UpdateSuperSampling` in Main.gd), and the project is landscape. A phone/tablet starts with a 60 per second frame-rate limit (Settings > Performance; `Engine.max_fps`; 0 = no limit elsewhere), since an iPad Pro would otherwise run at 120 and run warm.
 
+**Removal effects** (Settings > Effects; `BoardView.RemovalEffects`, same on the cube): Fly Away, Mini Me, Explode, and three that play in place (`Scripts/View/InPlaceRemoval.gd`, 0.5 s, not scaled by Removal Speed): Disappear (gone at once), Spin and Shrink (spins on a random axis, 1.5 turns, while shrinking to nothing), Spin then Vanish (spins at full size, then gone). A refill waits for them (`InPlaceActive`).
+
 **Attract Mode picks** the largest playable group; ties go to the group closest on average to the bottom (as the user sees it), remaining ties at random (`BoardView.AttractStep`). **On the 3D cube** (`CubeView.AttractStep`) it picks one of the six faces at random (among those with a playable group touching them), then the largest group on that face, so every side gets played; and while Attract Mode is on the cube also turns slowly about all three axes (a Settings > Game switch, "Random rotation in Attract Mode (3D)", on by default and shown only for the cube, turns it off - `CubeView.AttractSpin`; `CubeView.SpinStep`: yaw, tilt and roll each follow their own random sweeps, 0.5-1.5 radians over 6-14 s, eased).
 
 ## Naming and style

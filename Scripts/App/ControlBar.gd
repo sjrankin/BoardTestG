@@ -15,7 +15,7 @@ signal BoardTypeSelected(Index: int)
 signal BoardSetPressed(Width: int, Height: int, Depth: int, Colors: int, Blockers: int)
 signal RemovalSpeedChanged(Value: float)
 signal LightningToggled(On: bool)
-## 0 is Fly Away, 1 is Mini Me, 2 is Explode (the order of `RemovalEffectNames`).
+## The index into `RemovalEffectNames` (the order of `BoardView.RemovalEffects`).
 signal RemovalEffectChanged(Index: int)
 signal BlockerZapsToggled(On: bool)
 signal SpecularToggled(On: bool)
@@ -33,7 +33,7 @@ const BoardTypeNames: Array[String] = ["2D Board", "3D Cube"]
 ## The choices in the Frame Rate list (0 is "No Limit").
 const FrameRateLimits: Array[int] = [30, 60, 120, 0]
 const GearSize := 64.0
-const RemovalEffectNames: Array[String] = ["Fly Away", "Mini Me", "Explode"]
+const RemovalEffectNames: Array[String] = ["Fly Away", "Mini Me", "Explode", "Disappear", "Spin and Shrink", "Spin then Vanish"]
 const EdgeMargin := 14.0
 const SettingsFontSize := 24
 const RowHeight := 48.0

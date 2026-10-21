@@ -70,6 +70,8 @@ var WaitingForVacate: bool = false
 var VacateClock: float = 0.0
 var PendingTweens: int = 0
 var PendingShuffles: int = 0
+## How many in-place removal effects are still playing; a refill waits for them.
+var InPlaceActive: int = 0
 ## One sweep in progress per axis (yaw, tilt, roll): {Delta, Duration, Elapsed, Applied}.
 var Sweeps: Array[Dictionary] = []
 
@@ -88,6 +90,7 @@ func NewGame(Width: int, Height: int, Depth: int, Colors: int) -> void:
 	Flyers.Reset()
 	WaitingForVacate = false
 	PendingTweens = 0
+	InPlaceActive = 0
 	GameNumber += 1
 	Model = CubeModel.new(Width, Height, Depth, Colors)
 	MovingIds.clear()
@@ -258,6 +261,11 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 		var Node: Node3D = Entry["Node"]
 		if not is_instance_valid(Node):
 			continue
+		if RemovalEffect >= BoardView.RemovalEffects.Disappear:
+			# Plays where it stands; the piece is freed when the effect is over.
+			InPlaceActive += 1
+			InPlaceRemoval.Play(self, Node, RemovalEffect, OnInPlaceDone.bind(GameNumber))
+			continue
 		if RemovalEffect == BoardView.RemovalEffects.Explode:
 			Flyers.Explode(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinShardsPerPiece, FlyerSystem.MaxShardsPerPiece))
 		elif RemovalEffect == BoardView.RemovalEffects.MiniMe:
@@ -269,6 +277,11 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 		Node.queue_free()
 	WaitingForVacate = true
 	VacateClock = 0.0
+
+
+func OnInPlaceDone(Game: int) -> void:
+	if Game == GameNumber:
+		InPlaceActive = maxi(InPlaceActive - 1, 0)
 
 
 ## Attract Mode's move: a face chosen at random from the six - among those with a playable group touching them - then the largest
@@ -394,7 +407,7 @@ func _physics_process(Delta: float) -> void:
 	# The refill waits until every removed piece has left its cell (or a timeout), on the pieces' own clock.
 	if WaitingForVacate:
 		VacateClock += Delta * RemovalSpeed
-		if Flyers.AllVacated() or VacateClock > FlyerSystem.VacateTimeout:
+		if (Flyers.AllVacated() and InPlaceActive == 0) or VacateClock > FlyerSystem.VacateTimeout:
 			WaitingForVacate = false
 			StartDrop()
 
