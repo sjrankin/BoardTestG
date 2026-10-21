@@ -8,7 +8,7 @@ BoardTestRK moves here. For now: the 2D board only, cubes only, Subtract mode (t
 The game rules are the same as BoardTestRK's. Read `../BoardTestRK/BoardTestRKRules.md` first. This project covers
 its 2D-board parts: groups, removal, gravity, refill, Blockers, no-moves recovery, and the Fly Away effect
 (here real rigid-body physics: pieces fall to the floor, bounce off the board and each other, then fade). Not yet
-ported: Add mode (drag swaps), the idle hint, the rounded cube / diamond / ellipsoid / extruded-letter / joined shapes, sounds, the cube/sphere/solid boards. Block shapes done: Cube, Sphere, Cone, Cylinder, Glow, Rounded Cube, Joined Cubes / Joined Spheres (from BoardTestRK's Joined Squares / Circles) and Joined Cylinders (new) (`BuildShapes` in BoardView.gd; a shape is a mesh, a black-edge twin and a collider).
+ported: Add mode (drag swaps), the idle hint, the rounded cube / diamond / ellipsoid / extruded-letter / joined shapes, sounds, the cube/sphere/solid boards. Block shapes done: Cube, Sphere, Cone, Cylinder, Glow, Rounded Cube, Joined Cubes / Joined Spheres (from BoardTestRK's Joined Squares / Circles) Joined Cylinders (new) and Joined Glow (new: streaks of light between same-colour neighbours) (`BuildShapes` in BoardView.gd; a shape is a mesh, a black-edge twin and a collider).
 
 ## Layout
 

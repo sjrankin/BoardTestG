@@ -6,6 +6,7 @@ extends RefCounted
 ##   two surfaces run together with no gap or edge line between them, and a group reads as one solid block.
 ## - Joined Spheres: a cylinder bridges the gap between two joined spheres (a little narrower than a sphere, so the two
 ##   surfaces never lie in the same plane), with the same black edge as the spheres.
+## - Joined Glow (new here): a streak of light spans the gap between two joined glow pieces.
 ## - Joined Cylinders (new here): a drum grows up or down to meet a joined neighbour, and grows a flat wing (as deep as the drum
 ##   is round) toward one beside it, so a joined group reads as one smooth shape.
 ##
@@ -30,7 +31,12 @@ var PieceNodes: Dictionary
 ## Cube meshes by neighbour mask (bit 1 east, 2 west, 4 up, 8 down): [body mesh, edge mesh].
 var CubeMeshes: Dictionary = {}
 var BridgeMeshes: Dictionary = {}
+var LastShape: int = -1
 var CylinderMeshes: Dictionary = {}
+## How many small glows span the gap between two joined glow pieces, and their shared meshes.
+const GlowBridgeSteps := 3
+var GlowBridgeHalo: QuadMesh
+var GlowBridgeCore: QuadMesh
 
 
 ## Brings every piece's joins up to date with the board: `Moving` holds the ids of pieces that are not at rest. Cheap enough
@@ -38,12 +44,17 @@ var CylinderMeshes: Dictionary = {}
 func Update(Moving: Dictionary) -> void:
 	var Shape := Styles.CurrentShape
 	var Joined := Styles.IsJoined()
+	# A shape change starts from a clean slate: no bridge of the old shape (a rod, a streak of light) may be mistaken for one of the new.
+	var Changed := Shape != LastShape
+	LastShape = Shape
 	for Col in Model.Width:
 		for Row in Model.Height:
 			var Piece := Model.GetPiece(Col, Row)
 			if Piece == null or not PieceNodes.has(Piece.Id):
 				continue
 			var Node: Node3D = PieceNodes[Piece.Id]
+			if Changed:
+				RemoveBridges(Node)
 			var Mask := 0
 			if Joined and not Moving.has(Piece.Id):
 				Mask = NeighbourMask(Piece, Col, Row, Moving)
@@ -56,6 +67,8 @@ func Update(Moving: Dictionary) -> void:
 					RemoveBridges(Node)
 				BlockStyles.Shapes.JoinedSpheres:
 					ApplyBridges(Node, Piece.Kind, Mask, Shape)
+				BlockStyles.Shapes.JoinedGlow:
+					ApplyGlowBridges(Node, Piece.Kind, Mask)
 				_:
 					RemoveBridges(Node)
 
@@ -192,6 +205,55 @@ func RemoveBridges(Node: Node3D) -> void:
 		if Existing != null:
 			Existing.queue_free()
 			Existing.name = Name + "Gone"
+
+
+# MARK: Joined Glow
+
+## Light between two joined glow pieces: a few small camera-facing glows spaced across the gap (each side is "owned" by one
+## piece, as for the bridges), which add up to a soft streak joining the two cores.
+func ApplyGlowBridges(Node: Node3D, Kind: int, Mask: int) -> void:
+	SetGlowBridge(Node, "JoinEast", Kind, Mask & 1 != 0, Vector3(Pitch, 0, 0))
+	SetGlowBridge(Node, "JoinDown", Kind, Mask & 8 != 0, Vector3(0, -Pitch, 0))
+
+
+func SetGlowBridge(Node: Node3D, Name: String, Kind: int, Wanted: bool, Gap: Vector3) -> void:
+	var Existing := Node.get_node_or_null(Name)
+	if not Wanted:
+		if Existing != null:
+			Existing.queue_free()
+			Existing.name = Name + "Gone"
+		return
+	if Existing != null:
+		return
+	var Bridge := Node3D.new()
+	Bridge.name = Name
+	for Step in GlowBridgeSteps:
+		var Spot := MeshInstance3D.new()
+		Spot.mesh = GlowBridgeMesh()
+		Spot.material_override = Styles.GlowHaloMaterials[Kind]
+		Spot.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		Spot.position = Gap * (float(Step + 1) / (GlowBridgeSteps + 1))
+		Bridge.add_child(Spot)
+		var Heart := MeshInstance3D.new()
+		Heart.mesh = GlowBridgeCoreMesh()
+		Heart.material_override = Styles.GlowCoreMaterials[Kind]
+		Heart.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		Spot.add_child(Heart)
+	Node.add_child(Bridge)
+
+
+func GlowBridgeMesh() -> Mesh:
+	if GlowBridgeHalo == null:
+		GlowBridgeHalo = QuadMesh.new()
+		GlowBridgeHalo.size = Vector2.ONE * BlockStyles.GlowHaloSize * 0.6
+	return GlowBridgeHalo
+
+
+func GlowBridgeCoreMesh() -> Mesh:
+	if GlowBridgeCore == null:
+		GlowBridgeCore = QuadMesh.new()
+		GlowBridgeCore.size = Vector2.ONE * BlockStyles.GlowCoreSize * 0.7
+	return GlowBridgeCore
 
 
 ## The mesh of a bridge between two spheres: a cylinder, `Scale` times as wide (1 for the bridge, the edge scale for its shell).

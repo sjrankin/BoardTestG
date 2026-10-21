@@ -9,8 +9,8 @@ const BlockSize := 0.92
 
 ## The piece shapes. `BodyMeshes`, `OutlineMeshes` and `ColliderShapes` have one entry per value.
 ## (New shapes go on the end, so a remembered shape keeps meaning the same thing.)
-enum Shapes { Cube, Sphere, Cone, Cylinder, Glow, RoundedCube, JoinedCubes, JoinedSpheres, JoinedCylinders }
-const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow", "Rounded Cube", "Joined Cubes", "Joined Spheres", "Joined Cylinders"]
+enum Shapes { Cube, Sphere, Cone, Cylinder, Glow, RoundedCube, JoinedCubes, JoinedSpheres, JoinedCylinders, JoinedGlow }
+const ShapeNames: Array[String] = ["Cube", "Sphere", "Cone", "Cylinder", "Glow", "Rounded Cube", "Joined Cubes", "Joined Spheres", "Joined Cylinders", "Joined Glow"]
 ## The rounded cube's corner radius, as a fraction of its size (as in BoardTestRK).
 const RoundedCubeRadius := 0.25
 
@@ -89,13 +89,13 @@ func IsCubeLike() -> bool:
 	return CurrentShape == Shapes.Cube or CurrentShape == Shapes.RoundedCube or CurrentShape == Shapes.JoinedCubes
 
 
-## Whether the current shape is one of the three whose same-colour neighbours are joined (`JoinSystem`).
+## Whether the current shape is one of the four whose same-colour neighbours are joined (`JoinSystem`).
 func IsJoined() -> bool:
-	return CurrentShape == Shapes.JoinedCubes or CurrentShape == Shapes.JoinedSpheres or CurrentShape == Shapes.JoinedCylinders
+	return CurrentShape == Shapes.JoinedCubes or CurrentShape == Shapes.JoinedSpheres or CurrentShape == Shapes.JoinedCylinders or CurrentShape == Shapes.JoinedGlow
 
 
 func IsGlow() -> bool:
-	return CurrentShape == Shapes.Glow
+	return CurrentShape == Shapes.Glow or CurrentShape == Shapes.JoinedGlow
 
 
 ## The collider of the current shape.
@@ -128,7 +128,7 @@ func ApplyShape(Visual: Node3D, Shape: int) -> void:
 	var Body := Visual.get_child(0) as MeshInstance3D
 	var Edge := Visual.get_child(1) as MeshInstance3D
 	var Core := Body.get_node("Core") as MeshInstance3D
-	var Glowing := Shape == Shapes.Glow
+	var Glowing := Shape == Shapes.Glow or Shape == Shapes.JoinedGlow
 	Body.mesh = BodyMeshes[Shape]
 	Body.material_override = GlowHaloMaterials[Kind] if Glowing else Materials[Kind]
 	Body.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if Glowing else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
@@ -243,6 +243,6 @@ func BuildShapes() -> void:
 	var RoundedEdge := RoundedBoxMesh.Build(BlockSize * Edge, BlockSize * RoundedCubeRadius * Edge)
 	var RoundedShape := Rounded.create_convex_shape(true, false)
 	# The three "joined" shapes look like a cube, a sphere and a cylinder (their own joins are added by `JoinSystem`).
-	BodyMeshes = [Cube, Ball, Cone, Can, Halo, Rounded, Cube, Ball, Can]
-	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge, RoundedEdge, CubeEdge, BallEdge, CanEdge]
-	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape, RoundedShape, CubeBox, BallShape, CanShape]
+	BodyMeshes = [Cube, Ball, Cone, Can, Halo, Rounded, Cube, Ball, Can, Halo]
+	OutlineMeshes = [CubeEdge, BallEdge, ConeEdge, CanEdge, NoEdge, RoundedEdge, CubeEdge, BallEdge, CanEdge, NoEdge]
+	ColliderShapes = [CubeBox, BallShape, ConeShape, CanShape, BallShape, RoundedShape, CubeBox, BallShape, CanShape, BallShape]
