@@ -18,6 +18,18 @@ const AutoTiltRate := 0.45
 const ShuffleDuration := 0.7
 const ShuffleLift := 2.0
 const LightningLead := 0.2
+## How far outside a piece's middle a bolt's end sits (the piece reaches about 0.46).
+const BoltLift := 0.6
+## Attract Mode turns the cube slowly about each of its three axes in turn: each axis takes its own sweeps, each a random angle
+## (radians) over a random time (seconds), eased at both ends, so it is never fast (at most about 0.3 radians a second on average).
+const SpinAngle := Vector2(0.5, 1.5)
+const SpinDuration := Vector2(6.0, 14.0)
+## A new piece falls in from this many cells above the cell it is created in, if that cell looks up at least this much (the dot of the
+## cell's outward direction with up).
+const ArrivalHeight := 4.0
+const ArrivalMinUpward := 0.2
+## How long a new piece with nothing to fall from takes to grow into place.
+const GrowTime := 0.3
 ## Which way the camera is (from the cube), roughly: a recenter turns a face toward it.
 const CameraDirection := Vector3(0, 0.3, 1)
 ## The Yaw and Tilt that turn each face (in `CubeModel.Faces` order) to face the camera.
@@ -32,9 +44,11 @@ var RemovalSpeed: float = 1.0:
 		RemovalSpeed = Value
 		if Flyers != null:
 			Flyers.RemovalSpeed = Value
-## The cube turns about its own middle: `Yaw` about the world's vertical, then `Tilt` about the cube's own X axis.
+## The cube turns about its own middle: `Yaw` about the world's vertical, then `Tilt` about the cube's own X axis, then `Roll`
+## about its own Z axis (the way it faces). Dragging turns yaw and tilt; roll is only turned by Attract Mode (and put back by Recenter).
 var Yaw: float = 0.0
 var Tilt: float = 0.0
+var Roll: float = 0.0
 var AutoRotate: bool = false
 var AutoClock: float = 0.0
 ## Unused here (gravity on the cube is fixed per face); the scene sets it every frame for the 2D board.
@@ -51,6 +65,8 @@ var WaitingForVacate: bool = false
 var VacateClock: float = 0.0
 var PendingTweens: int = 0
 var PendingShuffles: int = 0
+## One sweep in progress per axis (yaw, tilt, roll): {Delta, Duration, Elapsed, Applied}.
+var Sweeps: Array[Dictionary] = []
 
 
 # MARK: Game lifecycle
@@ -73,6 +89,7 @@ func NewGame(Width: int, Height: int, Depth: int, Colors: int) -> void:
 	var Face := BestFace()
 	Yaw = FaceTurns[Face].x
 	Tilt = FaceTurns[Face].y
+	Roll = 0.0
 	ApplyRotation()
 	BuildNodes()
 	Busy = false
@@ -199,9 +216,10 @@ func CrackleLightning(Leaving: Array[Dictionary]) -> void:
 	var Game := GameNumber
 	var Points: Array[Vector3] = []
 	for Entry in Leaving:
-		Points.append((Entry["Node"] as Node3D).global_position)
+		# Just outside the piece's face, so the bolt runs over the surface; the blocks hide it everywhere else.
+		Points.append((Entry["Node"] as Node3D).global_position + global_basis * (Entry["Out"] as Vector3) * BoltLift)
 	var Tint := Color(0.55, 0.75, 1.0).lerp(Styles.Palette[Leaving[0]["Kind"]], 0.3)
-	LightningEffect.Play(get_parent(), Points, Tint)
+	LightningEffect.Play(get_parent(), Points, Tint, true)
 	await get_tree().create_timer(LightningLead).timeout
 	if Game != GameNumber:
 		Leaving.clear()
@@ -234,20 +252,31 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 	VacateClock = 0.0
 
 
-## Attract Mode's move: the largest playable group; among equals, one at random.
+## Attract Mode's move: a face chosen at random from the six - among those with a playable group touching them - then the largest
+## such group on it (a random one among equals). Over time every side gets played, not just the one that has the biggest groups.
 func AttractStep() -> void:
 	if Busy or Model == null:
 		return
+	var Groups := Model.PlayableGroups()
+	var Faces: Array[int] = []
+	for Face in 6:
+		for Group in Groups:
+			if Group.any(func(Cell: Vector3i) -> bool: return Model.OnFace(Cell, Face)):
+				Faces.append(Face)
+				break
+	if Faces.is_empty():
+		return
+	var Face: int = Faces[randi() % Faces.size()]
 	var Best: Array = []
 	var BestSize := 0
-	for Group in Model.PlayableGroups():
+	for Group in Groups:
+		if not Group.any(func(Cell: Vector3i) -> bool: return Model.OnFace(Cell, Face)):
+			continue
 		if Group.size() > BestSize:
 			Best = [Group]
 			BestSize = Group.size()
 		elif Group.size() == BestSize:
 			Best.append(Group)
-	if Best.is_empty():
-		return
 	var Chosen: Array = Best[randi() % Best.size()]
 	TapCell(Chosen[0])
 
@@ -255,12 +284,18 @@ func AttractStep() -> void:
 # MARK: Turning the cube
 
 func ApplyRotation() -> void:
-	basis = Basis(Vector3.UP, Yaw) * Basis(Vector3.RIGHT, Tilt)
+	basis = Basis(Vector3.UP, Yaw) * Basis(Vector3.RIGHT, Tilt) * Basis(Vector3.BACK, Roll)
 
 
+## A drag turns the cube with the pointer, in screen space, whatever way it is turned: sideways about the world's vertical, up and down
+## about the screen's horizontal (the camera looks along -Z, so that is the world's X axis) - so a piece on the face you see follows the
+## mouse or finger. (Yaw, tilt and roll are then read back from the turned cube.)
 func RotateBy(DeltaYaw: float, DeltaTilt: float) -> void:
-	Yaw = wrapf(Yaw + DeltaYaw, -PI, PI)
-	Tilt = wrapf(Tilt + DeltaTilt, -PI, PI)
+	var Turned := Basis(Vector3.UP, DeltaYaw) * Basis(Vector3.RIGHT, DeltaTilt) * basis
+	var Angles := Turned.orthonormalized().get_euler(EULER_ORDER_YXZ)
+	Tilt = Angles.x
+	Yaw = Angles.y
+	Roll = Angles.z
 	ApplyRotation()
 
 
@@ -288,16 +323,47 @@ func Recenter() -> void:
 	Yaw = wrapf(Yaw, -PI, PI)
 	Tilt = wrapf(Tilt, -PI, PI)
 	var Turn := create_tween()
-	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, FaceTurns[Face]), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	Roll = wrapf(Roll, -PI, PI)
+	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, FaceTurns[Face], Roll), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 
-func RecenterStep(Progress: float, StartYaw: float, StartTilt: float, Target: Vector2) -> void:
+func RecenterStep(Progress: float, StartYaw: float, StartTilt: float, Target: Vector2, StartRoll: float) -> void:
+	Roll = StartRoll + angle_difference(StartRoll, 0.0) * Progress
 	Yaw = StartYaw + angle_difference(StartYaw, Target.x) * Progress
 	Tilt = StartTilt + angle_difference(StartTilt, Target.y) * Progress
 	ApplyRotation()
 
 
+## Starts a new sweep of one axis: a random direction, angle and time.
+func NewSweep() -> Dictionary:
+	var Direction := 1.0 if randf() < 0.5 else -1.0
+	return {"Delta": Direction * randf_range(SpinAngle.x, SpinAngle.y), "Duration": randf_range(SpinDuration.x, SpinDuration.y), "Elapsed": 0.0, "Applied": 0.0}
+
+
+## Attract Mode's slow turning: each axis follows its own sweeps, added to whatever the cube is doing (a drag still turns it).
+func SpinStep(Delta: float) -> void:
+	if Sweeps.is_empty():
+		for Axis in 3:
+			Sweeps.append(NewSweep())
+	var Turns := [0.0, 0.0, 0.0]
+	for Axis in 3:
+		var Sweep := Sweeps[Axis]
+		Sweep["Elapsed"] += Delta
+		var Progress := clampf(Sweep["Elapsed"] / Sweep["Duration"], 0.0, 1.0)
+		var Eased: float = smoothstep(0.0, 1.0, Progress) * Sweep["Delta"]
+		Turns[Axis] = Eased - Sweep["Applied"]
+		Sweep["Applied"] = Eased
+		if Progress >= 1.0:
+			Sweeps[Axis] = NewSweep()
+	Yaw = wrapf(Yaw + Turns[0], -PI, PI)
+	Tilt = wrapf(Tilt + Turns[1], -PI, PI)
+	Roll = wrapf(Roll + Turns[2], -PI, PI)
+	ApplyRotation()
+
+
 func _process(Delta: float) -> void:
+	if AttractActive and not AutoRotate and Model != null:
+		SpinStep(Delta)
 	if AutoRotate:
 		AutoClock += Delta
 		Yaw = wrapf(Yaw + AutoYawRate * Delta, -PI, PI)
@@ -318,43 +384,73 @@ func _physics_process(Delta: float) -> void:
 
 func StartDrop() -> void:
 	Flyers.ClearOriginBlockers()
-	var Moves := Model.Drop()
+	var Moves := Model.Drop(Gravity())
 	if Moves.is_empty():
 		FinishDrop()
 		return
 	# Every piece moves at the same speed - the longest path takes `FallDuration` - so pieces that start touching stay touching.
+	var Walks: Array[Array] = []
 	var Longest := 0.0
 	for Move in Moves:
-		Longest = maxf(Longest, PathLength(Move["Path"]))
+		var Points := PathPoints(Move["Path"], Move["Spawned"], Move["Depth"])
+		Walks.append(Points)
+		Longest = maxf(Longest, PointsLength(Points))
 	var Speed := maxf(Longest, 1.0) / FallDuration
-	for Move in Moves:
-		AnimateMove(Move["Piece"], Move["Path"], Speed)
+	for Index in Moves.size():
+		AnimateMove(Moves[Index]["Piece"], Walks[Index], Speed)
 	if PendingTweens == 0:
 		FinishDrop()
 
 
-func PathLength(Path: Array) -> float:
+## Gravity in the cube's own space: world-down, however the cube is turned right now.
+func Gravity() -> Vector3:
+	return (global_basis.inverse() * Vector3.DOWN).normalized()
+
+
+## The cube-space points a piece walks through for a path of cells. A new piece (created in the cell the path starts at) first falls
+## along gravity from above the cube to that cell - higher for each round it was created later, so a column of them arrives one behind
+## another - when its face looks up enough to be reached from above; a face turned away from above has nothing to fall from, so the
+## piece just grows into place there (a one-point walk).
+func PathPoints(Path: Array, Spawned: bool, Depth: int) -> Array[Vector3]:
+	var Points: Array[Vector3] = []
+	for Cell in Path:
+		Points.append(CellPosition(Cell))
+	if not Spawned:
+		return Points
+	var Up := -Gravity()
+	if Up.dot(Model.OutwardAt(Path[0])) < ArrivalMinUpward:
+		return Points
+	Points.insert(0, Points[0] + Up * (ArrivalHeight + Depth) * Pitch)
+	return Points
+
+
+func PointsLength(Points: Array[Vector3]) -> float:
 	var Total := 0.0
-	for Index in range(1, Path.size()):
-		Total += Vector3(Path[Index] - Path[Index - 1]).length() * Pitch
+	for Index in range(1, Points.size()):
+		Total += Points[Index].distance_to(Points[Index - 1])
 	return Total
 
 
-func AnimateMove(Piece: BoardModel.PieceData, Path: Array, Speed: float) -> void:
+func AnimateMove(Piece: BoardModel.PieceData, Points: Array[Vector3], Speed: float) -> void:
 	var Node: Node3D = PieceNodes.get(Piece.Id)
 	var IsNew := Node == null
 	if IsNew:
-		Node = AddPieceNode(Piece, CellPosition(Path[0]))
+		Node = AddPieceNode(Piece, Points[0])
 		Node.scale = Vector3.ONE * 0.7
 	var Walk := create_tween()
-	for Index in range(1, Path.size()):
-		var Length := Vector3(Path[Index] - Path[Index - 1]).length() * Pitch
-		Walk.tween_property(Node, "position", CellPosition(Path[Index]), Length / Speed)
+	var Duration := PointsLength(Points) / Speed
+	if Points.size() < 2:
+		# Nothing to fall from: it grows where it is.
+		Node.scale = Vector3.ONE * 0.01
+		Duration = GrowTime
+		Walk.tween_interval(GrowTime)
+	for Index in range(1, Points.size()):
+		Walk.tween_property(Node, "position", Points[Index], Points[Index].distance_to(Points[Index - 1]) / Speed)
 	PendingTweens += 1
 	Walk.finished.connect(OnMoveFinished)
 	if IsNew:
 		var Grow := create_tween()
-		Grow.tween_property(Node, "scale", Vector3.ONE, PathLength(Path) / Speed)
+		Grow.tween_property(Node, "scale", Vector3.ONE, Duration)
 
 
 func OnMoveFinished() -> void:

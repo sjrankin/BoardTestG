@@ -7,17 +7,26 @@ extends RefCounted
 ## (`Cells`, keyed by the cell), so shared pieces are the same colour on every board by construction, and a removal on one side is
 ## seen on the other.
 ##
-## Cells are (X, Y, Z): X to the right, Y up, Z toward the front. Each face is also a grid of (Col, Row) - `FaceCell` maps it to a
-## cell - with pieces flowing toward higher rows (the face's own gravity, fixed by the face and not by how the cube is turned):
-## Front, Back, Left and Right flow down, Top flows toward the front (+Z), Bottom toward the back (-Z). Pieces never move sideways (the
-## cube has no Blockers). New pieces queue off the face, before row 0, in `Queue` - keyed (Face, Col, Row < 0).
+## Cells are (X, Y, Z): X to the right, Y up, Z toward the front. Gravity is the real, world one (down on screen, however the cube is
+## turned), given to `Drop` in the cube's own space. A piece falls to the neighbouring surface cell that is most downhill, if that is
+## downhill enough (`SlopeMin`) - so it runs down a face, round an edge and onto the next face, and rests on a level face (the floor).
+## A gap is filled by the piece above it falling in; a gap at the top (a cell that faces the sky and has nothing above it, whatever is
+## turned up) is filled by a new piece that falls in from the sky; a gap neither can reach (a level underside) is filled by a piece
+## sliding in along the surface, and the gap that leaves is filled from the top. (Each face is still a grid of (Col, Row) - `FaceCell` - for counting
+## and for tests.) There are no Blockers, and nothing ever moves sideways except downhill.
 ##
 ## A group is same-coloured pieces that touch along a side; groups reach across edges, and a shared piece counts once.
 
 ## The same piece record the 2D board uses.
 const PieceData := BoardModel.PieceData
 const MinimumGroupSize := 3
-const MaxRounds := 60
+const MaxRounds := 400
+## A neighbouring cell is downhill enough to fall to when its direction's alignment with gravity is above this (about 20 degrees off level).
+const SlopeMin := 0.35
+## A cell faces the sky when its outward direction's alignment with up is at least this (about 78 degrees from level).
+const SkyMin := 0.2
+## A tiny tilt added to gravity when sliding along level surfaces, so there is always one way along a level face (never a tie).
+const SlideTilt := Vector3(0.0123, 0.0071, 0.0097)
 const MaxShuffleAttempts := 3
 const MaxDealAttempts := 200
 const DimensionRange := Vector2i(3, 15)
@@ -34,18 +43,16 @@ var Depth: int
 var ColorCount: int
 var Score: int = 0
 var Rng := RandomNumberGenerator.new()
-## The longest a column can be, and so how far off a face a queued piece can wait.
-var Pad: int
 ## Surface cell -> PieceData. A cell with no entry is empty.
 var Cells: Dictionary = {}
 ## Every surface cell.
 var SurfaceCells: Array[Vector3i] = []
-## New pieces waiting off a face: Vector3i(Face, Col, Row < 0) -> PieceData.
-var Queue: Dictionary = {}
 var NextId: int = 1
 ## Piece id -> the cells it passes through during the current `Drop` (the first entry is where it started).
 var Paths: Dictionary = {}
 var PathPieces: Dictionary = {}
+## Piece id -> how many spawn rounds in it was created (so a view can stagger pieces falling in from the sky one behind another).
+var SpawnDepths: Dictionary = {}
 
 
 func _init(NewWidth: int, NewHeight: int, NewDepth: int, NewColorCount: int, Seed: int = 0) -> void:
@@ -53,7 +60,6 @@ func _init(NewWidth: int, NewHeight: int, NewDepth: int, NewColorCount: int, See
 	Height = clampi(NewHeight, DimensionRange.x, DimensionRange.y)
 	Depth = clampi(NewDepth, DimensionRange.x, DimensionRange.y)
 	ColorCount = clampi(NewColorCount, 3, 8)
-	Pad = maxi(Width, maxi(Height, Depth))
 	if Seed != 0:
 		Rng.seed = Seed
 	else:
@@ -149,23 +155,7 @@ func PieceCountOnFace(Face: int) -> int:
 	return Total
 
 
-# MARK: Virtual cells (a face's board, with its queue above row 0)
-
-func FGet(Face: int, Col: int, Row: int) -> PieceData:
-	if Row < 0:
-		return Queue.get(Vector3i(Face, Col, Row))
-	return Cells.get(FaceCell(Face, Col, Row))
-
-
-func FSet(Face: int, Col: int, Row: int, Piece: PieceData) -> void:
-	if Row < 0:
-		if Piece == null:
-			Queue.erase(Vector3i(Face, Col, Row))
-		else:
-			Queue[Vector3i(Face, Col, Row)] = Piece
-		return
-	SetPiece(FaceCell(Face, Col, Row), Piece)
-
+# MARK: Making pieces
 
 func NewPiece(Kind: int) -> PieceData:
 	var Piece := BoardModel.PieceData.new(NextId, Kind)
@@ -190,7 +180,6 @@ func Deal() -> void:
 
 func FillRandom() -> void:
 	Cells.clear()
-	Queue.clear()
 	for Cell in SurfaceCells:
 		SetPiece(Cell, NewPiece(RandomKind()))
 
@@ -273,78 +262,134 @@ func RecordMove(Piece: PieceData, From: Vector3i, To: Vector3i) -> void:
 	Paths[Piece.Id].append(To)
 
 
-## Every face closes its gaps: each piece with an open cell ahead of it on its face's board moves into it, until a full pass moves
-## nothing. (A piece on an edge can move along either face it is on; it never goes back, since no face flows upward - Top and Bottom
-## only move pieces along their own level - so this always ends.) Returns how many moves it made.
-func Settle() -> int:
+## For each surface cell, the neighbouring surface cells a piece could fall into it from, best first: those whose way to the cell is
+## more than `SlopeMin` aligned with gravity `Down` (a direction in the cube's space). A cell with none is as high as it gets (the top
+## of the cube, or a level face), and nothing can fall into it. Falling always goes to a lower cell, so it cannot go round in a circle.
+func BuildFeeders(Down: Vector3) -> Dictionary:
+	var Feeders := {}
+	for Cell in SurfaceCells:
+		var Options: Array = []
+		for Offset in Neighbors:
+			var Alignment := Vector3(Offset).dot(Down)
+			if Alignment > SlopeMin and IsSurface(Cell - Offset):
+				Options.append([Alignment, Cell - Offset])
+		Options.sort_custom(func(A: Array, B: Array) -> bool: return A[0] > B[0])
+		Feeders[Cell] = Options.map(func(Option: Array) -> Vector3i: return Option[1])
+	return Feeders
+
+
+## Whether a cell faces the sky: its outward direction (between the faces, for an edge or corner) looks up at least this much, so a
+## new piece can fall onto it from above. `Up` is the way up in the cube's space.
+func IsExposed(Cell: Vector3i, Up: Vector3) -> bool:
+	return Up.dot(OutwardAt(Cell)) >= SkyMin
+
+
+## Every empty cell takes the piece that can fall into it from above (the best of its feeders), lowest cells first so a whole column
+## drops in one pass, until a pass moves nothing. `Order` is the surface cells lowest first. Returns how many moves it made.
+func Settle(Feeders: Dictionary, Order: Array[Vector3i]) -> int:
 	var MoveCount := 0
 	var Changed := true
 	while Changed:
 		Changed = false
-		for Face in 6:
-			for Row in range(FaceRows(Face) - 2, -Pad - 1, -1):
-				for Col in FaceCols(Face):
-					var Piece := FGet(Face, Col, Row)
-					if Piece == null or FGet(Face, Col, Row + 1) != null:
-						continue
-					FSet(Face, Col, Row, null)
-					FSet(Face, Col, Row + 1, Piece)
-					RecordMove(Piece, FaceCell(Face, Col, Row), FaceCell(Face, Col, Row + 1))
-					Changed = true
-					MoveCount += 1
+		for Cell in Order:
+			if Cells.has(Cell):
+				continue
+			for Source in Feeders[Cell]:
+				var Piece := GetPiece(Source)
+				if Piece == null:
+					continue
+				SetPiece(Source, null)
+				SetPiece(Cell, Piece)
+				RecordMove(Piece, Source, Cell)
+				Changed = true
+				MoveCount += 1
+				break
 	return MoveCount
 
 
-## New pieces queue off each face, one per open cell in a column that is not already covered by a queued piece. Returns how many
-## were created. (A shared cell may be filled by the other face first; the extra piece then never enters and is discarded.)
-func SpawnAbove() -> int:
+## A new piece in every empty top cell - one that faces the sky and has nothing above it to fall from - so new pieces enter only at the
+## top, however the cube is turned. It starts there and falls on from it. `Round` counts the spawn rounds so far. Returns how many.
+func SpawnAtSources(Sources: Array[Vector3i], Round: int) -> int:
 	var Spawned := 0
-	for Face in 6:
-		for Col in FaceCols(Face):
-			var Needed := 0
-			for Row in FaceRows(Face):
-				if FGet(Face, Col, Row) == null:
-					Needed += 1
-			for Index in Pad:
-				if Queue.has(Vector3i(Face, Col, -1 - Index)):
-					Needed -= 1
-			for Index in Pad:
-				if Needed <= 0:
-					break
-				if Queue.has(Vector3i(Face, Col, -1 - Index)):
-					continue
-				var Piece := NewPiece(RandomKind())
-				FSet(Face, Col, -1 - Index, Piece)
-				Paths[Piece.Id] = [FaceCell(Face, Col, -1 - Index)]
-				PathPieces[Piece.Id] = Piece
-				Needed -= 1
-				Spawned += 1
+	for Cell in Sources:
+		if Cells.has(Cell):
+			continue
+		var Piece := NewPiece(RandomKind())
+		SetPiece(Cell, Piece)
+		Paths[Piece.Id] = [Cell]
+		PathPieces[Piece.Id] = Piece
+		SpawnDepths[Piece.Id] = Round
+		Spawned += 1
 	return Spawned
 
 
-## Removes any piece still queued off a face once everything has settled (it had no room to enter).
-func DiscardQueued() -> void:
-	for Key in Queue.keys():
-		var Piece: PieceData = Queue[Key]
-		Paths.erase(Piece.Id)
-		PathPieces.erase(Piece.Id)
-	Queue.clear()
+## What is left once falling and the top are done: a gap that nothing can fall into and that does not face the sky (a level underside,
+## say) is filled by a piece that slides in along the surface from a neighbour that is not lower than it - never uphill, and never
+## out of or into a cell facing the sky. That leaves a gap behind, which falling then fills from the top. Each cell moves at most
+## once a pass. Returns how many moves it made.
+func SlideIntoGaps(Down: Vector3, Up: Vector3) -> int:
+	var Weak := (Down + SlideTilt).normalized()
+	var Taken := {}
+	var MoveCount := 0
+	for Cell in SurfaceCells:
+		if Cells.has(Cell) or Taken.has(Cell) or IsExposed(Cell, Up):
+			continue
+		var BestAlignment := 0.0
+		var Best := Vector3i.ZERO
+		for Offset in Neighbors:
+			var Source := Cell - Offset
+			if not IsSurface(Source) or Taken.has(Source) or not Cells.has(Source) or IsExposed(Source, Up):
+				continue
+			var Alignment := Vector3(Offset).dot(Weak)
+			if Alignment > BestAlignment:
+				BestAlignment = Alignment
+				Best = Source
+		if BestAlignment <= 0.0:
+			continue
+		var Piece := GetPiece(Best)
+		SetPiece(Best, null)
+		SetPiece(Cell, Piece)
+		RecordMove(Piece, Best, Cell)
+		Taken[Cell] = true
+		Taken[Best] = true
+		MoveCount += 1
+	return MoveCount
 
 
-## Closes every gap: existing pieces move along their faces, new ones queue off the faces and flow in, until nothing more moves.
-## Returns [{Piece, Path: Array[Vector3i]}] for every piece that moved or was created; a new piece's path starts off the cube.
-func Drop() -> Array:
+## Closes every gap under `Gravity` (a direction in the cube's own space, default straight down): pieces fall into the gaps below
+## them, new pieces fall in at the top (the cells that face the sky and have nothing above them), and a gap neither can reach is
+## filled by a piece sliding in along the surface, until the surface is full. Returns [{Piece, Path: Array[Vector3i], Spawned: bool,
+## Depth: int}] for every piece that moved or was created; a new piece's path starts at the cell it was created in (a view draws it
+## falling in from above that cell, or growing there if that cell does not face the sky), and `Depth` says how many rounds in it was
+## created.
+func Drop(Gravity: Vector3 = Vector3.DOWN) -> Array:
 	Paths.clear()
 	PathPieces.clear()
+	SpawnDepths.clear()
+	var Down := Gravity.normalized()
+	var Up := -Down
+	var Feeders := BuildFeeders(Down)
+	var Sources: Array[Vector3i] = []
+	for Cell in SurfaceCells:
+		if Feeders[Cell].is_empty() and IsExposed(Cell, Up):
+			Sources.append(Cell)
+	var Order: Array[Vector3i] = SurfaceCells.duplicate()
+	Order.sort_custom(func(A: Vector3i, B: Vector3i) -> bool: return Vector3(A).dot(Down) > Vector3(B).dot(Down))
+	var SpawnRound := 0
 	for Round in MaxRounds:
-		var Moved := Settle()
-		var Spawned := SpawnAbove()
-		if Moved == 0 and Spawned == 0:
+		var Moved := Settle(Feeders, Order)
+		var Spawned := SpawnAtSources(Sources, SpawnRound)
+		if Spawned > 0:
+			SpawnRound += 1
+		if Moved > 0 or Spawned > 0:
+			continue
+		if SlideIntoGaps(Down, Up) == 0:
 			break
-	DiscardQueued()
+	# A gap that nothing could reach at all (no neighbour to slide in from): a piece grows there.
+	SpawnAtSources(SurfaceCells, 0)
 	var Result: Array = []
 	for Id in Paths:
-		Result.append({"Piece": PathPieces[Id], "Path": Paths[Id]})
+		Result.append({"Piece": PathPieces[Id], "Path": Paths[Id], "Spawned": SpawnDepths.has(Id), "Depth": SpawnDepths.get(Id, 0)})
 	return Result
 
 

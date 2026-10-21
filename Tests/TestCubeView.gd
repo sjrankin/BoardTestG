@@ -76,9 +76,84 @@ func TestFaceTurns() -> void:
 
 
 ## Runs on the first frame, when the scene tree is ready (nodes need it for their global transforms).
+## Attract Mode plays every side of the cube, not just one.
+func TestAttractUsesAllFaces() -> void:
+	var View := MakeView(7, 7, 7)
+	var Touched := {}
+	for Round in 150:
+		View.Busy = false
+		View.WaitingForVacate = false
+		View.Model.Deal()
+		var Before := {}
+		for Cell in View.Model.SurfaceCells:
+			Before[Cell] = View.Model.GetPiece(Cell)
+		View.AttractStep()
+		for Cell in View.Model.SurfaceCells:
+			if View.Model.GetPiece(Cell) == null and Before[Cell] != null:
+				for Face in 6:
+					if View.Model.OnFace(Cell, Face):
+						Touched[Face] = true
+	Check(Touched.size() == 6, "attract mode clears pieces on all six faces: %s" % [Touched.keys()])
+	View.queue_free()
+
+
+## Attract Mode's spin turns all three axes, and never fast.
+func TestAttractSpin() -> void:
+	var View := MakeView(5, 5, 5)
+	View.AttractActive = true
+	var Start := Vector3(View.Yaw, View.Tilt, View.Roll)
+	var Moved := Vector3.ZERO
+	var FastestStep := 0.0
+	var Last := Start
+	for Frame in 3600:
+		View.SpinStep(1.0 / 60.0)
+		var Now := Vector3(View.Yaw, View.Tilt, View.Roll)
+		for Axis in 3:
+			var Step := absf(angle_difference(Last[Axis], Now[Axis]))
+			Moved[Axis] += Step
+			FastestStep = maxf(FastestStep, Step * 60.0)
+		Last = Now
+	for Axis in 3:
+		Check(Moved[Axis] > 1.0, "axis %d turned during a minute of attract mode (%f)" % [Axis, Moved[Axis]])
+	Check(FastestStep < 0.8, "the spin is slow: %f radians a second at most" % FastestStep)
+	View.queue_free()
+
+
+## A drag turns the face you see with the pointer, in every orientation: the nearest piece moves down when the mouse moves down, and
+## right when it moves right.
+func TestDragFollowsPointer() -> void:
+	var View := MakeView(5, 5, 5)
+	var Turns: Array[Vector3] = [Vector3(0, 0, 0), Vector3(PI, 0, 0), Vector3(PI / 2.0, 0, 0), Vector3(-PI / 2.0, 0.3, 0), Vector3(0, PI / 2.0, 0), Vector3(0.5, -PI / 2.0, 1.0), Vector3(2.5, 0.7, -1.2), Vector3(-1.0, -0.4, 2.0)]
+	for Turn in Turns:
+		for Direction in 2:
+			View.Yaw = Turn.x
+			View.Tilt = Turn.y
+			View.Roll = Turn.z
+			View.ApplyRotation()
+			# The piece nearest the camera (in the world, relative to the cube's middle), and where it is in the cube.
+			var Nearest := Vector3.ZERO
+			var NearestZ := -INF
+			for Cell in View.Model.SurfaceCells:
+				var World := View.global_basis * View.CellPosition(Cell)
+				if World.z > NearestZ:
+					NearestZ = World.z
+					Nearest = World
+			var Local := View.global_basis.inverse() * Nearest
+			if Direction == 0:
+				View.RotateBy(0.0, 0.05)
+				Check((View.global_basis * Local).y < Nearest.y - 0.01, "dragging down moves the nearest piece down at turn %s" % [Turn])
+			else:
+				View.RotateBy(0.05, 0.0)
+				Check((View.global_basis * Local).x > Nearest.x + 0.01, "dragging right moves the nearest piece right at turn %s" % [Turn])
+	View.queue_free()
+
+
 func _process(_Delta: float) -> bool:
 	TestTaps()
 	TestFaceTurns()
+	TestAttractUsesAllFaces()
+	TestAttractSpin()
+	TestDragFollowsPointer()
 	print("ALL PASS" if Failures == 0 else "%d FAILURES" % Failures)
 	quit(Failures)
 	return true

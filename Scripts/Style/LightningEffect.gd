@@ -2,7 +2,8 @@ class_name LightningEffect
 extends Node3D
 ## Electric arcs between a set of points: a jagged, crackling network of bolts that re-jitter many times a second, with
 ## a flash of blue light, then fade. Each bolt is three ribbons turned to face the camera - a wide faint glow, a faint
-## yellow outline, and a thin bright core with a slight yellow tint - drawn over everything, so they read as light.
+## yellow outline, and a thin bright core with a slight yellow tint - drawn over everything, so they read as light. (On the 3D cube
+## they are depth-tested instead, so the blocks hide the bolts on the far side of the cube and inside it.)
 
 ## How long the bolts crackle at full strength, then how long they take to fade out.
 const Duration := 0.17
@@ -41,14 +42,17 @@ var Flash: OmniLight3D
 var Age: float = 0.0
 var SinceRegen: float = 1.0
 var BaseColor: Color = Color(0.6, 0.8, 1.0)
+## Whether pieces in front of a bolt hide it (the 3D cube) rather than the bolt being drawn over everything.
+var DepthTest: bool = false
 
 
 ## Plays lightning joining `Points` (world space) under `Parent`. Does nothing for fewer than two points.
-static func Play(Parent: Node, Points: Array[Vector3], Tint: Color) -> void:
+static func Play(Parent: Node, Points: Array[Vector3], Tint: Color, TestDepth: bool = false) -> void:
 	if Points.size() < 2:
 		return
 	var Effect := LightningEffect.new()
 	Effect.BaseColor = Tint
+	Effect.DepthTest = TestDepth
 	Effect.Points = Points
 	Effect.Bolts = Effect.JoinPoints(Points)
 	Parent.add_child(Effect)
@@ -67,10 +71,10 @@ func _ready() -> void:
 	# The bolts are rebuilt in world space each time, so the mesh must never be culled by a stale bounding box.
 	Instance.extra_cull_margin = 100.0
 	add_child(Instance)
-	GlowMaterial = BoltDrawing.MakeMaterial(Color(BaseColor, 0.4), 2)
-	OutlineMaterial = BoltDrawing.MakeMaterial(Color(OutlineColor, OutlineOpacity), 3)
+	GlowMaterial = BoltDrawing.MakeMaterial(Color(BaseColor, 0.4), 2, true, DepthTest)
+	OutlineMaterial = BoltDrawing.MakeMaterial(Color(OutlineColor, OutlineOpacity), 3, true, DepthTest)
 	var Bright := CoreTint * CoreBrightness
-	CoreMaterial = BoltDrawing.MakeMaterial(Color(Bright.r, Bright.g, Bright.b, 1.0), 4)
+	CoreMaterial = BoltDrawing.MakeMaterial(Color(Bright.r, Bright.g, Bright.b, 1.0), 4, true, DepthTest)
 	Flash = OmniLight3D.new()
 	Flash.light_color = BaseColor.lerp(Color(0.5, 0.7, 1.0), 0.5)
 	Flash.omni_range = FlashRange

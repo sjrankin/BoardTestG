@@ -73,6 +73,7 @@ func TestGroupsCrossEdges() -> void:
 
 
 func TestDropFillsEverything() -> void:
+	var Gravities: Array[Vector3] = [Vector3.DOWN, Vector3(0.3, -0.9, 0.2), Vector3(-0.7, -0.5, 0.5), Vector3(0, -0.6, 0.8), Vector3(1, 0, 0), Vector3(0.1, 1, 0.1)]
 	for Size in [Vector3i(3, 3, 3), Vector3i(7, 7, 7), Vector3i(11, 11, 11), Vector3i(15, 3, 15), Vector3i(3, 15, 5)]:
 		var Model := CubeModel.new(Size.x, Size.y, Size.z, 5, 7)
 		var Clears := 0
@@ -84,35 +85,68 @@ func TestDropFillsEverything() -> void:
 			var Group: Array = Groups[randi() % Groups.size()]
 			var Removed := Model.Remove(Group)
 			Clears += Removed.size()
-			var Moves := Model.Drop()
-			Check(FullAndUnique(Model), "after clear %d every cell is full for %s" % [Round, Size])
-			Check(Model.Queue.is_empty(), "the queue is empty after a drop")
+			var Gravity := Gravities[Round % Gravities.size()]
+			var Moves := Model.Drop(Gravity)
+			Check(FullAndUnique(Model), "after clear %d every cell is full for %s (gravity %s)" % [Round, Size, Gravity])
 			for Move in Moves:
 				var Path: Array = Move["Path"]
-				Check(Path.size() >= 2, "a moved piece has a path")
+				Check(Path.size() >= 1, "a moved piece has a path")
+				Check(Path.size() >= 2 or Move["Spawned"], "only a new piece may stay where it starts")
 				Check(Model.GetPiece(Path.back()) == Move["Piece"], "a path ends where its piece is for %s" % Size)
 				for Index in range(1, Path.size()):
-					Check((Path[Index] - Path[Index - 1]).abs().x + (Path[Index] - Path[Index - 1]).abs().y + (Path[Index] - Path[Index - 1]).abs().z == 1, "path steps are one cell")
+					var Step: Vector3i = Path[Index] - Path[Index - 1]
+					Check(absi(Step.x) + absi(Step.y) + absi(Step.z) == 1, "path steps are one cell")
+					Check(Vector3(Step).dot(Gravity.normalized()) > -0.02, "path steps never go uphill")
 		Check(Model.Score == Clears, "score counts cleared pieces for %s" % Size)
 
 
 func TestFlow() -> void:
-	# A gap in the middle of the front face is filled from above: the piece above it falls down.
+	# With gravity straight down, a gap in the middle of the front face is filled by the piece above it falling.
 	var Model := CubeModel.new(7, 7, 7, 5, 3)
 	var Above := Model.GetPiece(Vector3i(3, 4, 6))
 	Model.SetPiece(Vector3i(3, 3, 6), null)
 	Model.Drop()
 	Check(Model.GetPiece(Vector3i(3, 3, 6)) == Above, "the piece above a gap on the front falls into it")
-	# A gap in the middle of the top face is filled from behind: the piece behind it moves toward the front.
-	var Behind := Model.GetPiece(Vector3i(3, 6, 2))
+	# A gap at the top of the front face (nothing above it) is filled by a new piece; the rest stay put.
+	var Beside := Model.GetPiece(Vector3i(2, 6, 6))
+	Model.SetPiece(Vector3i(3, 6, 6), null)
+	var Before := Model.GetPiece(Vector3i(3, 5, 6))
+	var Moves := Model.Drop()
+	Check(Model.GetPiece(Vector3i(3, 6, 6)) != null and Model.GetPiece(Vector3i(3, 5, 6)) == Before, "a gap at the top is filled by a new piece and nothing else moves")
+	Check(Moves.size() == 1 and Moves[0]["Spawned"], "the new piece is the only one that moved")
+	Check(Model.GetPiece(Vector3i(2, 6, 6)) == Beside, "a gap beside it does not move its neighbour")
+	# A gap in the middle of the top face has nothing above it either: a new piece, nothing slides sideways on a level face.
+	var Next := Model.GetPiece(Vector3i(3, 6, 2))
 	Model.SetPiece(Vector3i(3, 6, 3), null)
-	Model.Drop()
-	Check(Model.GetPiece(Vector3i(3, 6, 3)) == Behind, "the piece behind a gap on the top moves forward into it")
-	# And on the bottom, the piece in front of a gap moves toward the back.
-	var InFront := Model.GetPiece(Vector3i(3, 0, 4))
-	Model.SetPiece(Vector3i(3, 0, 3), null)
-	Model.Drop()
-	Check(Model.GetPiece(Vector3i(3, 0, 3)) == InFront, "the piece in front of a gap on the bottom moves back into it")
+	Moves = Model.Drop()
+	Check(Model.GetPiece(Vector3i(3, 6, 3)) != null and Model.GetPiece(Vector3i(3, 6, 2)) == Next, "a gap on the top face is filled by a new piece")
+	Check(Moves.size() == 1 and Moves[0]["Spawned"], "only the new piece moved on the top face")
+	# Turned so that gravity runs along +Z, pieces on a face fall that way.
+	var Turned := CubeModel.new(7, 7, 7, 5, 3)
+	var Behind := Turned.GetPiece(Vector3i(3, 6, 2))
+	Turned.SetPiece(Vector3i(3, 6, 3), null)
+	Turned.Drop(Vector3(0, -0.3, 1))
+	Check(Turned.GetPiece(Vector3i(3, 6, 3)) == Behind, "on a face tilted toward +Z the piece behind a gap falls forward into it")
+
+
+## New pieces enter only at the top, however the cube is turned: every new piece starts in a cell that faces the sky (the tests empty a
+## good part of the cube, undersides included, at random turns).
+func TestNewPiecesEnterAtTheTop() -> void:
+	var Rng := RandomNumberGenerator.new()
+	Rng.seed = 21
+	for Trial in 40:
+		var Model := CubeModel.new(9, 7, 11, 5, Trial + 1)
+		var Down := Vector3(Rng.randf_range(-1, 1), Rng.randf_range(-1, 1), Rng.randf_range(-1, 1)).normalized()
+		if Trial % 8 == 0:
+			Down = Vector3.DOWN
+		for Cell in Model.SurfaceCells:
+			if Rng.randf() < 0.4:
+				Model.SetPiece(Cell, null)
+		var Moves := Model.Drop(Down)
+		Check(FullAndUnique(Model), "a half-empty cube is full again (trial %d)" % Trial)
+		for Move in Moves:
+			if Move["Spawned"]:
+				Check(Model.IsExposed(Move["Path"][0], -Down.normalized()), "a new piece starts facing the sky: %s for gravity %s (trial %d)" % [Move["Path"][0], Down, Trial])
 
 
 func TestShuffle() -> void:
@@ -134,6 +168,7 @@ func _init() -> void:
 	TestGroupsCrossEdges()
 	TestDropFillsEverything()
 	TestFlow()
+	TestNewPiecesEnterAtTheTop()
 	TestShuffle()
 	print("ALL PASS" if Failures == 0 else "%d FAILURES" % Failures)
 	quit(Failures)
