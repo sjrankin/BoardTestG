@@ -14,9 +14,16 @@ There are two general ways to play BoardTestG - in 2D or 3D (both make use of 3D
 
 This document describes what is in place now, and what is planned.
 
+View of BoardTestG in 2D mode when initially started.\
+<img src="Images/InitialBoard.gif" alt="Initial view of BoardTestG" width="600">\
+In the animation above, the checkerboard is a hint to the user which is the next group that can be removed (it uses a very simple no-look-ahead algorithm). The two blue blobs with lightning are non-movable/removable blocks.
+
 # Modes of Play
 ## 2D
 This is similar to a normal match 3 game, only with some 3D elements. This mode includes blockers that cannot be moved, and the usual game play (including hints for the user). The game play is the usual match 3 mechanism where the player taps on a group of pieces of at least three in quantity. The game will remove those pieces and drop existing pieces into place, backfilling if new pieces are needed. For debug purposes (and for the attract mode), if there are no playable groups, the user can reshuffle the board (or in attract mode, reshuffling happens automatically).
+
+The animation below shows a short sequence of the 2D board in attract mode.\
+<img src="Images/GamePlay2D.gif" alt="BoardTestG in 2D attract mode" width="600">
 ## 3D
 The board is turned into a cube (or other 3D shape). (I experimented with non-cubicle shapes (spheres, cones, etc) but lining up pieces was not necessarily straightforward.) The user interacts with each face of the cube and the pieces fly away as in a 2D board. The interesting thing is a group can extend across faces so when the player removes some pieces from one face, another face is changed. Currently, the user can rotate the cube at will. Eventually, I will add a mode to retrict play to a single face at a time, which will be interesting given the possibility of changing other faces when working on a different face.\
 The player has the ability to change the dimensions of the cube board.
@@ -56,8 +63,30 @@ Non-blocking pieces are playable and are what the user interacts with. Non-block
 
 Not all of the shapes are really playable in the sense they are easy to use.\
 As mentioned, colors are used to determine a group. Shapes are for visual interest only.
+
+Some of the pieces are shown in the following images.
+
+Standard block pieces that starts the game.\
+<img src="Images/BlockPieces.png" alt="Standard block pieces" width="400">
+
+Rounded block pieces that starts the game.\
+<img src="Images/RoundedBlockPieces.png" alt="Rounded block pieces" width="400">
+
+Joined block pieces (for more obvious groups).\
+<img src="Images/JoinedBlockPieces.png" alt="Joined block pieces" width="400">
+
+Spherical pieces - these bounce well.\
+<img src="Images/SpherePieces.png" alt="Sphere pieces" width="400">
+
+Glowing orbs pieces. These are pretty but I'm not sure I'll keep them in the game...\
+<img src="Images/GlowPieces.png" alt="Pieces made from glowing lights" width="400">
+
 ##### Blockers
-Blocking pieces are cannot be directly interacted with. They block the pieces above them (logically) from flowing directly down, requiring the game engine to flow around the block.
+Blocking pieces are cannot be directly interacted with. They block the pieces above them (logically) from flowing directly down, requiring the game engine to flow around the block.\
+Currently, blockers are animated indigo orbs with lightning bolts.
+
+Short animation of a blocker piece.\
+<img src="Images/Blocker.gif" alt="Initial view of BoardTestG" width="400">
 
 ## Implementation
 The initial program, BoardTestRK was implemented with Apple's SDKs and Swift. I created a framework and then used Claude to fill it in.
@@ -74,6 +103,17 @@ BoardTestG makes heavy use of Godot's physics engine in piece movement. This inc
 
 1. Piece removal - there are four current ways a piece can be removed: 1) simply disappear, 2) fly out and bounce until they timeout and fade away, 3) explode into small pieces and bounce on the board, and 4) break into smaller versions of the large piece and bound on the board. The bouncing uses a lot of physics processing. (Modeling of the shape to roll as expected as well as collision detection and interactions.)
 2. General piece motion in the board.
+
+Examples of block removal physics are shown below:
+
+Depending on the angle of the board, pieces will fly out or bounce on top of the board and roll off.\
+<img src="Images/SpheresRolling.gif" alt="Removal by flying out." width="400">
+
+This type of removal involves creating several smaller version of the piece to be removed, then popping them off of th board.\
+<img src="Images/MiniMeRemoval.gif" alt="Removal by mini cloning." width="400">
+
+The final type is fracturing the pieces and flinging the result across the game\
+<img src="Images/ExplodingRemoval.gif" alt="Removal by mini cloning." width="400">
 
 ### Game User Interface
 I used a minimum user interface for the game. It is mostly debug-controls and ways to test game play. A final UI will consist of controls on the main page (eg, play, reset, and the like).
