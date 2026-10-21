@@ -8,6 +8,8 @@ signal ShapeSelected(Index: int)
 signal ShufflePressed
 signal RecenterPressed
 signal AutoRotateToggled(On: bool)
+## Whether Attract Mode also turns the 3D cube slowly (random rotation).
+signal AttractSpinToggled(On: bool)
 ## 0 is the 2D board, 1 the 3D cube.
 signal BoardTypeSelected(Index: int)
 signal BoardSetPressed(Width: int, Height: int, Depth: int, Colors: int, Blockers: int)
@@ -38,6 +40,7 @@ const RowHeight := 48.0
 
 var AttractCheck: Button
 var AutoRotateCheck: Button
+var AttractSpinCheck: Button
 var LightningCheck: Button
 var BlockerZapsCheck: Button
 var SpecularCheck: Button
@@ -246,6 +249,8 @@ func BuildGameSection(Section: VBoxContainer) -> void:
 		CloseSettings()
 		ShufflePressed.emit())
 	AttractCheck = AddCheckRow(Section, "Attract Mode (plays itself)", false)
+	AttractSpinCheck = AddCheckRow(Section, "Random rotation in Attract Mode (3D)", true)
+	AttractSpinCheck.toggled.connect(func(On: bool) -> void: AttractSpinToggled.emit(On))
 	AutoRotateCheck = AddCheckRow(Section, "Auto Rotate the board", false)
 	AutoRotateCheck.toggled.connect(func(On: bool) -> void: AutoRotateToggled.emit(On))
 	AddButtonRow(Section, "Turn the board back to face you", "Recenter", func() -> void:
@@ -276,6 +281,7 @@ func ShowBoardType(Is3D: bool, Width: int, Height: int, Depth: int, Blockers: in
 	BlockersField.value = Blockers
 	DepthField.get_parent().visible = Is3D
 	BlockersField.get_parent().visible = not Is3D
+	AttractSpinCheck.get_parent().visible = Is3D
 
 
 func BuildPiecesSection(Section: VBoxContainer, ShapeIndex: int, Specular: bool, ShapeNames: Array[String]) -> void:

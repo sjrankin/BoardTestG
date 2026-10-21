@@ -18,6 +18,10 @@ View of BoardTestG in 2D mode when initially started.\
 <img src="Images/InitialBoard.gif" alt="Initial view of BoardTestG" width="600">\
 In the animation above, the checkerboard is a hint to the user which is the next group that can be removed (it uses a very simple no-look-ahead algorithm). The two blue blobs with lightning are non-movable/removable blocks.
 
+View of BoardTestG in 3D mode with automatic piece removal.\
+<img src="Images/3DAttractMode.gif" alt="Animation of attract mode in 3D" width="600">\
+The animation above shows the 3D cube in attract mode, showing piece removal. This gives a general idea how 3D mode looks and works.
+
 # Modes of Play
 ## 2D
 This is similar to a normal match 3 game, only with some 3D elements. This mode includes blockers that cannot be moved, and the usual game play (including hints for the user). The game play is the usual match 3 mechanism where the player taps on a group of pieces of at least three in quantity. The game will remove those pieces and drop existing pieces into place, backfilling if new pieces are needed. For debug purposes (and for the attract mode), if there are no playable groups, the user can reshuffle the board (or in attract mode, reshuffling happens automatically).
@@ -27,6 +31,11 @@ The animation below shows a short sequence of the 2D board in attract mode.\
 ## 3D
 The board is turned into a cube (or other 3D shape). (I experimented with non-cubicle shapes (spheres, cones, etc) but lining up pieces was not necessarily straightforward.) The user interacts with each face of the cube and the pieces fly away as in a 2D board. The interesting thing is a group can extend across faces so when the player removes some pieces from one face, another face is changed. Currently, the user can rotate the cube at will. Eventually, I will add a mode to retrict play to a single face at a time, which will be interesting given the possibility of changing other faces when working on a different face.\
 The player has the ability to change the dimensions of the cube board.
+
+View of a 3D cube with each side playable.\
+<img src="Images/3DCube.png" alt="3D cube image" width="400">\
+All pieces are the same shape in 3D mode, and use the same physics as 2D for piece removal.
+
 ## Meta Game
 Commercially-available match 3 games have a certain number of turns before the user loses at a given level. BoardTest G has different ways of playing:
 ### Turn-Limited
@@ -117,6 +126,13 @@ The final type is fracturing the pieces and flinging the result across the game\
 
 ### Game User Interface
 I used a minimum user interface for the game. It is mostly debug-controls and ways to test game play. A final UI will consist of controls on the main page (eg, play, reset, and the like).
+
+## Compiling
+I usually just compile via the Godot IDE and run and test the code there. I exported the game to an iPad and and it there as well.
+
+Be sure to use the proper version of the export modules (they must match the version of Godot you are running). The resultant binary can be quite large.
+
+BoardTestG has a built-in rate limiter for mobile devices but the player change change that in the settings.
 
 # Current Status
 ## Debug

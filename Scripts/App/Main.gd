@@ -79,6 +79,7 @@ func _ready() -> void:
 	add_child(Bar)
 	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, BlockStyles.ShapeNames)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
+	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
 	Bar.ShapeSelected.connect(OnShapeSelected)
 	Bar.ShufflePressed.connect(func() -> void: View.ShuffleNow())
 	Bar.RecenterPressed.connect(OnRecenterPressed)
@@ -91,6 +92,9 @@ func _ready() -> void:
 	Bar.FrameRateChanged.connect(OnFrameRateChanged)
 	Bar.ScreenshotPressed.connect(TakeScreenshot)
 	Bar.RemovalEffectChanged.connect(OnRemovalEffectChanged)
+	var AttractSpin := bool(GameSettings.Load("AttractSpin", true))
+	Bar.AttractSpinCheck.button_pressed = AttractSpin
+	Board3D.AttractSpin = AttractSpin
 	Both("RemovalSpeed", Speed)
 	Both("LightningEnabled", Lightning)
 	Both("RemovalEffect", RemovalEffect)
@@ -239,6 +243,11 @@ func OnBlockerZapsToggled(On: bool) -> void:
 	Board2D.SetBlockerZaps(On)
 	Board3D.SetBlockerZaps(On)
 	GameSettings.Save("BlockerZaps", On)
+
+
+func OnAttractSpinToggled(On: bool) -> void:
+	Board3D.AttractSpin = On
+	GameSettings.Save("AttractSpin", On)
 
 
 func OnLightningToggled(On: bool) -> void:

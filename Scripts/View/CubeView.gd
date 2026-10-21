@@ -59,8 +59,13 @@ var GameNumber: int = 0
 ## The cube has no Blockers, so there is nothing to zap.
 var BlockerZapsEnabled: bool = true
 var AttractActive: bool = false
+## Whether Attract Mode also turns the cube slowly (random rotation). Set from the controls.
+var AttractSpin: bool = true
 var Busy: bool = false
 var PieceNodes: Dictionary = {}
+## The joined shapes (see `CubeJoins`), and the ids of pieces that are not at rest (they have no joins).
+var Joins := CubeJoins.new()
+var MovingIds: Dictionary = {}
 var WaitingForVacate: bool = false
 var VacateClock: float = 0.0
 var PendingTweens: int = 0
@@ -85,6 +90,10 @@ func NewGame(Width: int, Height: int, Depth: int, Colors: int) -> void:
 	PendingTweens = 0
 	GameNumber += 1
 	Model = CubeModel.new(Width, Height, Depth, Colors)
+	MovingIds.clear()
+	Joins.Model = Model
+	Joins.Styles = Styles
+	Joins.PieceNodes = PieceNodes
 	position = Vector3(0, Radius() + 0.5, 0)
 	var Face := BestFace()
 	Yaw = FaceTurns[Face].x
@@ -92,6 +101,7 @@ func NewGame(Width: int, Height: int, Depth: int, Colors: int) -> void:
 	Roll = 0.0
 	ApplyRotation()
 	BuildNodes()
+	Joins.Update(MovingIds)
 	Busy = false
 	ScoreChanged.emit(0)
 	BoardRebuilt.emit()
@@ -139,9 +149,15 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	return Node
 
 
-## Changes the shape of every piece on the cube and of every piece dealt from now on. (The joined shapes look like their plain
-## shape here: the cube does not join pieces.)
+## Recomputes the joins: after a shape change (so a joined shape gets its joins, and a plain one loses them).
+func RefreshJoins() -> void:
+	if Model != null:
+		Joins.Update(MovingIds)
+
+
+## Changes the shape of every piece on the cube and of every piece dealt from now on.
 func SetBlockShape(NewShape: int) -> void:
+	call_deferred("RefreshJoins")
 	Styles.CurrentShape = clampi(NewShape, 0, BlockStyles.Shapes.size() - 1)
 	for Id in PieceNodes:
 		var Node: Node3D = PieceNodes[Id]
@@ -206,6 +222,9 @@ func TapCell(Cell: Vector3i) -> void:
 		PieceNodes.erase(Piece.Id)
 		if Node != null:
 			Leaving.append({"Node": Node, "Kind": Piece.Kind, "Out": Model.OutwardAt(Entry["Cell"])})
+			Joins.Strip(Node)
+	# Whatever was joined to a removed piece is on its own again at once.
+	Joins.Update(MovingIds)
 	if LightningEnabled and not Leaving.is_empty():
 		await CrackleLightning(Leaving)
 	SendFlying(Leaving)
@@ -362,7 +381,7 @@ func SpinStep(Delta: float) -> void:
 
 
 func _process(Delta: float) -> void:
-	if AttractActive and not AutoRotate and Model != null:
+	if AttractActive and AttractSpin and not AutoRotate and Model != null:
 		SpinStep(Delta)
 	if AutoRotate:
 		AutoClock += Delta
@@ -396,8 +415,12 @@ func StartDrop() -> void:
 		Walks.append(Points)
 		Longest = maxf(Longest, PointsLength(Points))
 	var Speed := maxf(Longest, 1.0) / FallDuration
+	for Move in Moves:
+		MovingIds[Move["Piece"].Id] = true
 	for Index in Moves.size():
 		AnimateMove(Moves[Index]["Piece"], Walks[Index], Speed)
+	# Everything that is about to move lets go of its joins now; they come back as each piece lands.
+	Joins.Update(MovingIds)
 	if PendingTweens == 0:
 		FinishDrop()
 
@@ -447,13 +470,15 @@ func AnimateMove(Piece: BoardModel.PieceData, Points: Array[Vector3], Speed: flo
 	for Index in range(1, Points.size()):
 		Walk.tween_property(Node, "position", Points[Index], Points[Index].distance_to(Points[Index - 1]) / Speed)
 	PendingTweens += 1
-	Walk.finished.connect(OnMoveFinished)
+	Walk.finished.connect(OnMoveFinished.bind(Piece.Id))
 	if IsNew:
 		var Grow := create_tween()
 		Grow.tween_property(Node, "scale", Vector3.ONE, Duration)
 
 
-func OnMoveFinished() -> void:
+func OnMoveFinished(Id: int) -> void:
+	MovingIds.erase(Id)
+	Joins.Update(MovingIds)
 	PendingTweens -= 1
 	if PendingTweens <= 0:
 		PendingTweens = 0
@@ -482,6 +507,8 @@ func Recover() -> void:
 				var Node := AddPieceNode(Piece, CellPosition(Cell))
 				Node.scale = Vector3.ONE * 0.01
 				create_tween().tween_property(Node, "scale", Vector3.ONE, 0.4)
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		get_tree().create_timer(0.45).timeout.connect(func() -> void: Busy = false)
 		return
 	AnimateShuffle(Result["Moves"])
@@ -490,6 +517,10 @@ func Recover() -> void:
 ## Every piece flies to its new cell in an arc out from the cube, turning once on the way and landing upright.
 func AnimateShuffle(Moves: Array) -> void:
 	PendingShuffles = 0
+	# Every shuffling piece lets go of its joins while it flies; they all come back together once the shuffle has finished.
+	for Move in Moves:
+		MovingIds[Move["Piece"].Id] = true
+	Joins.Update(MovingIds)
 	for Move in Moves:
 		var Node: Node3D = PieceNodes.get(Move["Piece"].Id)
 		if Node == null:
@@ -502,6 +533,8 @@ func AnimateShuffle(Moves: Array) -> void:
 			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 		Flight.tween_callback(OnShuffleLanded.bind(Node))
 	if PendingShuffles == 0:
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		Busy = false
 
 
@@ -518,6 +551,8 @@ func OnShuffleLanded(Node: Node3D) -> void:
 	PendingShuffles -= 1
 	if PendingShuffles <= 0:
 		PendingShuffles = 0
+		MovingIds.clear()
+		Joins.Update(MovingIds)
 		Busy = false
 
 

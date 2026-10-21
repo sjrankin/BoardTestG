@@ -115,6 +115,12 @@ func TestAttractSpin() -> void:
 		Last = Now
 	for Axis in 3:
 		Check(Moved[Axis] > 1.0, "axis %d turned during a minute of attract mode (%f)" % [Axis, Moved[Axis]])
+	# With the switch off, attract mode leaves the cube where it is.
+	View.AttractSpin = false
+	var Held := View.basis
+	for Frame in 600:
+		View._process(1.0 / 60.0)
+	Check(View.basis.is_equal_approx(Held), "attract mode does not turn the cube with random rotation off")
 	Check(FastestStep < 0.8, "the spin is slow: %f radians a second at most" % FastestStep)
 	View.queue_free()
 
