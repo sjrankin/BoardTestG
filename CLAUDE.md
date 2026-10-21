@@ -46,6 +46,8 @@ on a real iPhone, not the Simulator (the 4.7.2 template's simulator library has 
 `_main`). The folder has a `.gdignore`; its big generated parts are git-ignored. On iOS the scene is drawn at the screen's own
 size with 4x MSAA (`UpdateSuperSampling` in Main.gd), and the project is landscape. A phone/tablet starts with a 60 per second frame-rate limit (Settings > Performance; `Engine.max_fps`; 0 = no limit elsewhere), since an iPad Pro would otherwise run at 120 and run warm.
 
+**Attract Mode picks** the largest playable group; ties go to the group closest on average to the bottom (as the user sees it), remaining ties at random (`BoardView.AttractStep`).
+
 ## Naming and style
 
 Same owner conventions as the other projects: PascalCase for everything that is not a Godot API name (functions,

@@ -11,6 +11,8 @@ extends Node
 ##   --fade          with --capture, hold one piece still in front of the board and fade it, saving a shot every 2 frames
 ##   --hint          with --capture, show the idle hint right away (frame 25) and save shots at 20 and 35
 ##   --shot          with --capture, press the screenshot button at frame 25 and save a normal shot at 35 (to see the button)
+##   --explode       start with the Explode removal effect (flat shards)
+##   --minime        start with the Mini Me removal effect
 ##   --burst         with --capture, also save a screenshot every few frames from frame 120 to 260 (to catch an effect)
 
 ## The frames at which a screenshot is saved, and when the run ends.
@@ -49,6 +51,10 @@ static func FromCommandLine(TheView: BoardView, TheBar: ControlBar) -> CaptureRu
 			TheView.ApplyRotation()
 		elif Argument == "--lightning":
 			LightningRequested = true
+		elif Argument == "--explode":
+			TheView.RemovalEffect = BoardView.RemovalEffects.Explode
+		elif Argument == "--minime":
+			TheView.RemovalEffect = BoardView.RemovalEffects.MiniMe
 		elif Argument == "--shot":
 			ShotRequested = true
 		elif Argument == "--hint":

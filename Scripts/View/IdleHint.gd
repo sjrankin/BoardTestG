@@ -15,6 +15,8 @@ const PixelsPerSquare := 24
 ## A sphere's hint is black and white stripes from pole to pole (lines of longitude), this many in all, alternating, and the
 ## sphere turns slowly about the board's up-down axis while the hint shows.
 const SphereStripes := 32
+## A cylinder's hint: the same number of vertical stripes round it, and this many concentric rings on its top and bottom.
+const DrumRings := 6
 ## Squares along each edge of a cube (even, so they line up with its edges), and of the 3D checkerboard on a cone or cylinder.
 const CubeSquares := 8
 ## How fast hinted spheres turn about the board's up-down axis (radians per second), so their stripes visibly spin.
@@ -38,7 +40,8 @@ func _init() -> void:
 ## The hint's material for `Shape`. Rounded cubes use the flat checkerboard picture on each face (a plain cube's box mesh lays its six
 ## faces out in one shared picture, so the picture there comes out several times too large - cubes use the 3D checkerboard). A sphere has no
 ## flat face to put a picture on - wrapped round it, the picture bunches up at the poles and stretches elsewhere - so it gets
-## black and white longitude stripes instead (`HintStripes.gdshader`). A cone or cylinder is checkered in 3D
+## black and white longitude stripes instead (`HintStripes.gdshader`), and a cylinder gets the same stripes with rings on its ends
+## (`HintCylinder.gdshader`). A cone or cube is checkered in 3D
 ## (`HintChecker.gdshader`): the surface is coloured by which cell of a grid of cubes (`SquaresPerSide` across the piece) each
 ## point is in, so the squares are the same size everywhere.
 func MaterialFor(Shape: int) -> Material:
@@ -58,7 +61,13 @@ func MaterialFor(Shape: int) -> Material:
 		Stripes.shader = load("res://Scripts/View/HintStripes.gdshader")
 		Stripes.set_shader_parameter("Count", SphereStripes)
 		Result = Stripes
-	elif Shape == BlockStyles.Shapes.Cone or Shape == BlockStyles.Shapes.Cylinder or Shape == BlockStyles.Shapes.Cube:
+	elif Shape == BlockStyles.Shapes.Cylinder:
+		var Drum := ShaderMaterial.new()
+		Drum.shader = load("res://Scripts/View/HintCylinder.gdshader")
+		Drum.set_shader_parameter("Count", SphereStripes)
+		Drum.set_shader_parameter("RingWidth", BlockStyles.BlockSize / 2.0 / DrumRings)
+		Result = Drum
+	elif Shape == BlockStyles.Shapes.Cone or Shape == BlockStyles.Shapes.Cube:
 		var Surface := ShaderMaterial.new()
 		Surface.shader = load("res://Scripts/View/HintChecker.gdshader")
 		# An even number of cells across (a cube's edges then fall exactly on cell edges, so each face is a whole checkerboard).
@@ -153,7 +162,8 @@ func Show() -> void:
 ## Turns every hinted sphere about its own vertical axis - the board's up-down axis (a piece's own axes are the board's), so the
 ## stripes spin. Other shapes keep still.
 func SpinHinted(Delta: float) -> void:
-	if Styles.CurrentShape != BlockStyles.Shapes.Sphere:
+	# Spheres and plain cylinders spin; a joined shape would swing its joins out of place.
+	if Styles.CurrentShape != BlockStyles.Shapes.Sphere and Styles.CurrentShape != BlockStyles.Shapes.Cylinder:
 		return
 	for Id in HintedIds:
 		var Node: Node3D = PieceNodes.get(Id)

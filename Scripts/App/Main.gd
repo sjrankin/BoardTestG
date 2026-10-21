@@ -51,11 +51,12 @@ func _ready() -> void:
 	var Specular := bool(GameSettings.Load("Specular", false))
 	# A phone or tablet (which may run at 120 Hz) gets a 60 per second limit unless the user picks otherwise: drawing
 	# faster only makes the device warm and drains the battery. Elsewhere there is no limit.
+	var RemovalEffect := int(GameSettings.Load("RemovalEffect", 0))
 	var FrameRate := int(GameSettings.Load("FrameRate", DefaultMobileFrameRate if OS.has_feature("mobile") else 0))
 	Engine.max_fps = FrameRate
 	Bar = ControlBar.new()
 	add_child(Bar)
-	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, BlockStyles.ShapeNames)
+	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, BlockStyles.ShapeNames)
 	Bar.ShapeSelected.connect(OnShapeSelected)
 	Bar.ShufflePressed.connect(func() -> void: View.ShuffleNow())
 	Bar.RecenterPressed.connect(OnRecenterPressed)
@@ -67,8 +68,10 @@ func _ready() -> void:
 	Bar.SpecularToggled.connect(OnSpecularToggled)
 	Bar.FrameRateChanged.connect(OnFrameRateChanged)
 	Bar.ScreenshotPressed.connect(TakeScreenshot)
+	Bar.RemovalEffectChanged.connect(OnRemovalEffectChanged)
 	View.RemovalSpeed = Speed
 	View.LightningEnabled = Lightning
+	View.RemovalEffect = RemovalEffect
 	View.BlockerZapsEnabled = BlockerZaps
 	View.Styles.SetSpecular(Specular)
 	SceneSetup.SetSpecular(Specular)
@@ -140,6 +143,11 @@ func TakeScreenshot() -> void:
 	var Path := "%s/BoardTestG %s.png" % [Folder, Stamp]
 	var Result := Picture.save_png(Path)
 	print("Screenshot ", "saved to " + Path if Result == OK else "failed (%d)" % Result)
+
+
+func OnRemovalEffectChanged(Index: int) -> void:
+	View.RemovalEffect = Index
+	GameSettings.Save("RemovalEffect", Index)
 
 
 func OnFrameRateChanged(Limit: int) -> void:

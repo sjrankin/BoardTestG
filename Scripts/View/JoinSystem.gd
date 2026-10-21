@@ -6,8 +6,11 @@ extends RefCounted
 ##   two surfaces run together with no gap or edge line between them, and a group reads as one solid block.
 ## - Joined Spheres: a cylinder bridges the gap between two joined spheres (a little narrower than a sphere, so the two
 ##   surfaces never lie in the same plane), with the same black edge as the spheres.
-## - Joined Cylinders (new here): vertically, a cylinder column fills the gap; sideways, a flat slab as deep as a drum is
-##   round, so a joined row reads as one long drum.
+## - Joined Cylinders (new here): a drum grows up or down to meet a joined neighbour, and grows a flat wing (as deep as the drum
+##   is round) toward one beside it, so a joined group reads as one smooth shape.
+##
+## Where two pieces are joined, the black edge shell is left out on that side too (its walls would show as a dark line between
+## the pieces), so the join is smooth.
 ##
 ## The same rules as BoardTestRK: a join exists only between two same-coloured pieces that are next to each other right now and
 ## that are both at rest. A piece that is moving (falling, refilling, shuffling) has none, and neither does anything beside it
@@ -27,6 +30,7 @@ var PieceNodes: Dictionary
 ## Cube meshes by neighbour mask (bit 1 east, 2 west, 4 up, 8 down): [body mesh, edge mesh].
 var CubeMeshes: Dictionary = {}
 var BridgeMeshes: Dictionary = {}
+var CylinderMeshes: Dictionary = {}
 
 
 ## Brings every piece's joins up to date with the board: `Moving` holds the ids of pieces that are not at rest. Cheap enough
@@ -47,7 +51,10 @@ func Update(Moving: Dictionary) -> void:
 				BlockStyles.Shapes.JoinedCubes:
 					ApplyCubeMask(Node, Mask)
 					RemoveBridges(Node)
-				BlockStyles.Shapes.JoinedSpheres, BlockStyles.Shapes.JoinedCylinders:
+				BlockStyles.Shapes.JoinedCylinders:
+					ApplyCylinderMask(Node, Mask)
+					RemoveBridges(Node)
+				BlockStyles.Shapes.JoinedSpheres:
 					ApplyBridges(Node, Piece.Kind, Mask, Shape)
 				_:
 					RemoveBridges(Node)
@@ -58,6 +65,8 @@ func Strip(Node: Node3D) -> void:
 	RemoveBridges(Node)
 	if Styles.CurrentShape == BlockStyles.Shapes.JoinedCubes:
 		ApplyCubeMask(Node, 0)
+	elif Styles.CurrentShape == BlockStyles.Shapes.JoinedCylinders:
+		ApplyCylinderMask(Node, 0)
 
 
 ## Which sides of the piece at (Col, Row) have a joined neighbour: same colour, present, and not moving.
@@ -75,61 +84,70 @@ func NeighbourMask(Piece: BoardModel.PieceData, Col: int, Row: int, Moving: Dict
 
 func ApplyCubeMask(Node: Node3D, Mask: int) -> void:
 	if not CubeMeshes.has(Mask):
-		CubeMeshes[Mask] = [MakeCubeMesh(Mask, 0.0), MakeCubeMesh(Mask, BlockSize * (EdgeScale - 1.0))]
+		CubeMeshes[Mask] = [MakeCubeMesh(Mask, false), MakeCubeMesh(Mask, true)]
 	var Meshes: Array = CubeMeshes[Mask]
 	(Node.get_child(0) as MeshInstance3D).mesh = Meshes[0]
 	(Node.get_child(1) as MeshInstance3D).mesh = Meshes[1]
 
 
-## A box that is `BlockSize` deep and as wide and tall as a piece, but reaching out to the cell's edge (half a pitch from
-## the middle) on every joined side. `Grow` makes it that much bigger on every side but the joined ones (the edge shell).
-func MakeCubeMesh(Mask: int, Grow: float) -> ArrayMesh:
-	var Half := BlockSize / 2.0 + Grow / 2.0
+## A box `BlockSize` deep and as wide and tall as a piece, reaching out to the cell's edge (half a pitch from the middle) on every
+## joined side. The edge shell (`Shell`) is a copy a little bigger on every side but the joined ones, which it leaves open.
+func MakeCubeMesh(Mask: int, Shell: bool) -> ArrayMesh:
+	var Grow := BlockSize * (EdgeScale - 1.0) / 2.0 if Shell else 0.0
+	var Half := BlockSize / 2.0 + Grow
 	var Reach := Pitch / 2.0
-	var East := Reach if Mask & 1 else Half
-	var West := Reach if Mask & 2 else Half
-	var Up := Reach if Mask & 4 else Half
-	var Down := Reach if Mask & 8 else Half
-	var Depth := BlockSize / 2.0 + Grow / 2.0
-	return BoxBetween(Vector3(-West, -Down, -Depth), Vector3(East, Up, Depth))
+	var Skip := 0
+	var East := Half
+	var West := Half
+	var Up := Half
+	var Down := Half
+	if Mask & 1:
+		East = Reach
+		Skip |= PieceMeshes.FaceRight
+	if Mask & 2:
+		West = Reach
+		Skip |= PieceMeshes.FaceLeft
+	if Mask & 4:
+		Up = Reach
+		Skip |= PieceMeshes.FaceUp
+	if Mask & 8:
+		Down = Reach
+		Skip |= PieceMeshes.FaceDown
+	var Tool := PieceMeshes.NewTool()
+	PieceMeshes.AddBox(Tool, Vector3(-West, -Down, -Half), Vector3(East, Up, Half), Skip if Shell else 0)
+	return Tool.commit()
 
 
-## A box with the given opposite corners (Godot's own box mesh can only be centred on its origin), with flat normals and each
-## face mapped across the whole 0..1 square.
-func BoxBetween(Low: Vector3, High: Vector3) -> ArrayMesh:
-	var Tool := SurfaceTool.new()
-	Tool.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var Faces := [
-		[Vector3.RIGHT, Vector3.UP, Vector3.BACK],
-		[Vector3.LEFT, Vector3.UP, Vector3.FORWARD],
-		[Vector3.UP, Vector3.BACK, Vector3.RIGHT],
-		[Vector3.DOWN, Vector3.RIGHT, Vector3.BACK],
-		[Vector3.BACK, Vector3.UP, Vector3.LEFT],
-		[Vector3.FORWARD, Vector3.UP, Vector3.RIGHT],
-	]
-	var Centre := (Low + High) / 2.0
-	var Half := (High - Low) / 2.0
-	for Face in Faces:
-		var Normal: Vector3 = Face[0]
-		var AxisU: Vector3 = Face[1]
-		var AxisV: Vector3 = Face[2]
-		var Corners := [[-1, -1], [1, -1], [1, 1], [-1, 1]]
-		var Points: Array[Vector3] = []
-		for Corner in Corners:
-			Points.append(Centre + Normal * Half + AxisU * Half * Corner[0] + AxisV * Half * Corner[1])
-		var UVs: Array[Vector2] = [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)]
-		# Godot draws the clockwise side of a triangle: order so the winding's cross product points inward.
-		for Triangle in [[0, 1, 2], [0, 2, 3]]:
-			var Indices: Array[int] = [Triangle[0], Triangle[1], Triangle[2]]
-			var A: Vector3 = Points[Indices[0]]
-			var B: Vector3 = Points[Indices[1]]
-			var C: Vector3 = Points[Indices[2]]
-			if (B - A).cross(C - A).dot(Normal) > 0.0:
-				Indices = [Triangle[0], Triangle[2], Triangle[1]]
-			for Index in Indices:
-				Tool.set_normal(Normal)
-				Tool.set_uv(UVs[Index])
-				Tool.add_vertex(Points[Index])
+# MARK: Joined Cylinders
+
+func ApplyCylinderMask(Node: Node3D, Mask: int) -> void:
+	if not CylinderMeshes.has(Mask):
+		CylinderMeshes[Mask] = [MakeCylinderMesh(Mask, false), MakeCylinderMesh(Mask, true)]
+	var Meshes: Array = CylinderMeshes[Mask]
+	(Node.get_child(0) as MeshInstance3D).mesh = Meshes[0]
+	(Node.get_child(1) as MeshInstance3D).mesh = Meshes[1]
+
+
+## A drum standing on its end, grown up or down to the cell's edge toward a joined neighbour (its cap left off there), with a flat
+## wing out to the cell's edge toward a joined neighbour beside it - as deep as the drum is round, and as tall as the drum is
+## there. The edge shell is the same, a little bigger, and open wherever there is a join.
+func MakeCylinderMesh(Mask: int, Shell: bool) -> ArrayMesh:
+	var Grow := BlockSize * (EdgeScale - 1.0) / 2.0 if Shell else 0.0
+	var Radius := BlockSize / 2.0 + Grow
+	var Reach := Pitch / 2.0
+	var Up := Reach if Mask & 4 else Radius
+	var Down := Reach if Mask & 8 else Radius
+	var Tool := PieceMeshes.NewTool()
+	PieceMeshes.AddCylinder(Tool, Radius, -Down, Up, Mask & 4 == 0, Mask & 8 == 0)
+	var Skip := PieceMeshes.FaceRight | PieceMeshes.FaceLeft
+	if Mask & 4:
+		Skip |= PieceMeshes.FaceUp
+	if Mask & 8:
+		Skip |= PieceMeshes.FaceDown
+	if Mask & 1:
+		PieceMeshes.AddBox(Tool, Vector3(0, -Down, -Radius), Vector3(Reach, Up, Radius), Skip if Shell else 0)
+	if Mask & 2:
+		PieceMeshes.AddBox(Tool, Vector3(-Reach, -Down, -Radius), Vector3(0, Up, Radius), Skip if Shell else 0)
 	return Tool.commit()
 
 
@@ -176,23 +194,15 @@ func RemoveBridges(Node: Node3D) -> void:
 			Existing.name = Name + "Gone"
 
 
-## The mesh of a bridge: a cylinder (along its own up-axis, turned for a sideways one) for spheres and for a cylinder column; a
-## slab for a sideways bridge between cylinders. `Scale` is 1 for the bridge itself, the edge scale for its black shell.
+## The mesh of a bridge between two spheres: a cylinder, `Scale` times as wide (1 for the bridge, the edge scale for its shell).
 func BridgeMesh(Shape: int, Horizontal: bool, Scale: float) -> Mesh:
 	var Key := [Shape, Horizontal, Scale]
 	if BridgeMeshes.has(Key):
 		return BridgeMeshes[Key]
 	var Width := BlockSize * BridgeFraction * Scale
-	var Result: Mesh
-	if Shape == BlockStyles.Shapes.JoinedCylinders and Horizontal:
-		var Slab := BoxMesh.new()
-		Slab.size = Vector3(Pitch + (Scale - 1.0) * 0.0, Width, Width)
-		Result = Slab
-	else:
-		var Rod := CylinderMesh.new()
-		Rod.top_radius = Width / 2.0
-		Rod.bottom_radius = Width / 2.0
-		Rod.height = Pitch
-		Result = Rod
-	BridgeMeshes[Key] = Result
-	return Result
+	var Rod := CylinderMesh.new()
+	Rod.top_radius = Width / 2.0
+	Rod.bottom_radius = Width / 2.0
+	Rod.height = Pitch
+	BridgeMeshes[Key] = Rod
+	return Rod

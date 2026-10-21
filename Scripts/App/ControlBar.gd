@@ -11,6 +11,8 @@ signal AutoRotateToggled(On: bool)
 signal BoardSetPressed(Width: int, Height: int, Colors: int, Blockers: int)
 signal RemovalSpeedChanged(Value: float)
 signal LightningToggled(On: bool)
+## 0 is Fly Away, 1 is Mini Me, 2 is Explode (the order of `RemovalEffectNames`).
+signal RemovalEffectChanged(Index: int)
 signal BlockerZapsToggled(On: bool)
 signal SpecularToggled(On: bool)
 ## The most frames per second to draw; 0 means no limit.
@@ -26,6 +28,7 @@ const BlockersRange := Vector2i(0, 20)
 ## The choices in the Frame Rate list (0 is "No Limit").
 const FrameRateLimits: Array[int] = [30, 60, 120, 0]
 const GearSize := 64.0
+const RemovalEffectNames: Array[String] = ["Fly Away", "Mini Me", "Explode"]
 const EdgeMargin := 14.0
 const SettingsFontSize := 24
 const RowHeight := 48.0
@@ -39,6 +42,7 @@ var ScoreLabel: Label
 var FpsLabel: Label
 var ShapePicker: OptionButton
 var FrameRatePicker: OptionButton
+var RemovalEffectPicker: OptionButton
 var WidthField: SpinBox
 var HeightField: SpinBox
 var ColorsField: SpinBox
@@ -52,12 +56,12 @@ var Overlay: Control
 
 
 ## Builds the controls with their starting values.
-func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, FrameRate: int, ShapeNames: Array[String]) -> void:
+func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, FrameRate: int, RemovalEffect: int, ShapeNames: Array[String]) -> void:
 	BuildReadouts()
 	BuildGear()
 	if OS.get_name() == "macOS":
 		BuildCamera()
-	BuildSettingsWindow(Width, Height, Colors, Blockers, ShapeIndex, RemovalSpeed, Lightning, BlockerZaps, Specular, FrameRate, ShapeNames)
+	BuildSettingsWindow(Width, Height, Colors, Blockers, ShapeIndex, RemovalSpeed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, ShapeNames)
 	get_window().size_changed.connect(PlaceInsets)
 	PlaceInsets()
 
@@ -156,7 +160,7 @@ func CloseSettings() -> void:
 
 ## A dimmed backdrop (a tap on it closes the window) with a centered panel: a title, a scrolling list of settings in groups,
 ## and a Done button. While it is open it swallows every click, so nothing reaches the board behind it.
-func BuildSettingsWindow(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, FrameRate: int, ShapeNames: Array[String]) -> void:
+func BuildSettingsWindow(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, FrameRate: int, RemovalEffect: int, ShapeNames: Array[String]) -> void:
 	Overlay = Control.new()
 	Overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	Overlay.visible = false
@@ -214,7 +218,7 @@ func BuildSettingsWindow(Width: int, Height: int, Colors: int, Blockers: int, Sh
 	BuildGameSection(AddSection(Sections, "Game"))
 	BuildBoardSection(AddSection(Sections, "Board"), Width, Height, Colors, Blockers)
 	BuildPiecesSection(AddSection(Sections, "Pieces"), ShapeIndex, Specular, ShapeNames)
-	BuildEffectsSection(AddSection(Sections, "Effects"), Lightning, BlockerZaps, RemovalSpeed)
+	BuildEffectsSection(AddSection(Sections, "Effects"), Lightning, BlockerZaps, RemovalSpeed, RemovalEffect)
 	BuildPerformanceSection(AddSection(Sections, "Performance"), FrameRate)
 	get_window().size_changed.connect(FitSettingsWindow.bind(Dialog, Scroller))
 	FitSettingsWindow(Dialog, Scroller)
@@ -263,7 +267,13 @@ func BuildPiecesSection(Section: VBoxContainer, ShapeIndex: int, Specular: bool,
 	SpecularCheck.toggled.connect(func(On: bool) -> void: SpecularToggled.emit(On))
 
 
-func BuildEffectsSection(Section: VBoxContainer, Lightning: bool, BlockerZaps: bool, RemovalSpeed: float) -> void:
+func BuildEffectsSection(Section: VBoxContainer, Lightning: bool, BlockerZaps: bool, RemovalSpeed: float, RemovalEffect: int) -> void:
+	RemovalEffectPicker = OptionButton.new()
+	for Name in RemovalEffectNames:
+		RemovalEffectPicker.add_item(Name)
+	RemovalEffectPicker.selected = clampi(RemovalEffect, 0, RemovalEffectNames.size() - 1)
+	RemovalEffectPicker.item_selected.connect(func(Index: int) -> void: RemovalEffectChanged.emit(Index))
+	AddRow(Section, "Removal Effect", RemovalEffectPicker)
 	LightningCheck = AddCheckRow(Section, "Lightning when a group clears", Lightning)
 	LightningCheck.toggled.connect(func(On: bool) -> void: LightningToggled.emit(On))
 	BlockerZapsCheck = AddCheckRow(Section, "Zaps on the Blockers", BlockerZaps)

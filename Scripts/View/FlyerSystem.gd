@@ -6,6 +6,22 @@ extends Node3D
 ## the board once it has left.
 
 const MaxFlyers := 24
+## Mini Me: the most fragments alive at once, how many a piece breaks into (at least 10), how big each is compared with the piece,
+## and how fast they leave (world units per second at Removal Speed 1).
+const MaxFragments := 900
+const MinFragmentsPerPiece := 10
+const MaxFragmentsPerPiece := 14
+const FragmentScale := 0.34
+## Explode: how many shards a piece breaks into, how big each is (edge length, in cells), how thick (for collisions only), and how much
+## faster than a Mini Me fragment they fly.
+const MinShardsPerPiece := 14
+const MaxShardsPerPiece := 20
+const ShardSize := Vector2(0.24, 0.4)
+const ShardThickness := 0.04
+const ExplodeSpeedFactor := 2.5
+## (A burst's energy goes with the square of its speed: 15% more energy than the first version, 9 to 18, is its speeds times the
+## square root of 1.15.)
+const MiniMeSpeed := Vector2(9.0, 18.0) * 1.0724
 ## A flying piece ignores the board for this long after it pops out, so it can't jam against its neighbors on the way out.
 const LaunchClearTime := 0.25
 ## A flying piece has left its cell once it is a full block away, or after this long regardless.
@@ -30,6 +46,7 @@ var Flyers: Array[Dictionary] = []
 ## Solid stand-ins for the cells pieces were just removed from; they hold a flying piece up over its own gap.
 var OriginBlockers: Array[Node3D] = []
 var FlyerMaterial: PhysicsMaterial
+var ShardMeshes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -128,6 +145,144 @@ func AllVacated() -> bool:
 		if not Flyer["Fading"] and Body.global_position.distance_to(Flyer["Home"]) < BlockStyles.Pitch and Flyer["Age"] < VacateTimeout:
 			return false
 	return true
+
+
+# MARK: Mini Me
+
+## Breaks a removed piece of colour `Kind` at `From` (world space) into `Count` small copies of itself (`Fragments` times smaller) that
+## fly off at high speed in every direction. Unlike a flying piece, they bounce off the pieces still on the board from the very
+## first instant, as well as off the floor and each other, and fall under gravity. Their fade is the flying piece's.
+func MiniMe(Kind: int, From: Vector3, Count: int) -> void:
+	if Flyers.size() >= MaxFragments:
+		return
+	var Shrink := FragmentScale
+	for Index in Count:
+		var Body := RigidBody3D.new()
+		Body.physics_material_override = FlyerMaterial
+		Body.angular_damp = 1.0
+		Body.linear_damp = 0.05
+		Body.gravity_scale = RemovalSpeed * RemovalSpeed * RemovalGravity
+		Body.continuous_cd = true
+		Body.mass = 0.2
+		Body.collision_layer = PhysicsLayers.Floor
+		Body.collision_mask = PhysicsLayers.Floor | PhysicsLayers.Board
+		Body.contact_monitor = false
+		var Shape := CollisionShape3D.new()
+		Shape.shape = ScaledShape(Styles.ColliderShape(), Shrink)
+		Body.add_child(Shape)
+		var Visual := Styles.MakeVisual(Kind)
+		Visual.scale = Vector3.ONE * Shrink
+		var FlyerBody := Visual.get_child(0) as MeshInstance3D
+		var Tint: StandardMaterial3D = FlyerBody.material_override.duplicate()
+		var Edge: StandardMaterial3D = Styles.OutlineMaterial.duplicate()
+		FlyerBody.material_override = Tint
+		(Visual.get_child(1) as MeshInstance3D).material_override = Edge
+		var CoreTint: StandardMaterial3D = null
+		if Styles.IsGlow():
+			var FlyerCore := FlyerBody.get_node("Core") as MeshInstance3D
+			CoreTint = FlyerCore.material_override.duplicate()
+			FlyerCore.material_override = CoreTint
+		Body.add_child(Visual)
+		# Scattered through the volume of the piece that burst, each flying out in a random direction.
+		Body.position = From + Vector3(randf_range(-0.25, 0.25), randf_range(-0.25, 0.25), randf_range(-0.25, 0.25))
+		add_child(Body)
+		var Direction := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1))
+		if Direction.length() < 0.05:
+			Direction = Vector3.UP
+		Body.linear_velocity = Direction.normalized() * randf_range(MiniMeSpeed.x, MiniMeSpeed.y) * RemovalSpeed
+		Body.angular_velocity = Vector3(randf_range(-14.0, 14.0), randf_range(-14.0, 14.0), randf_range(-14.0, 14.0))
+		Flyers.append({"Body": Body, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Edge, "Core": CoreTint,
+				"StopsSpinning": false})
+
+
+## A copy of a collision shape `Factor` times as big. (A rigid body's shape cannot be scaled through its node, so the shape itself
+## is rebuilt.)
+func ScaledShape(Source: Shape3D, Factor: float) -> Shape3D:
+	if Source is BoxShape3D:
+		var Box := BoxShape3D.new()
+		Box.size = (Source as BoxShape3D).size * Factor
+		return Box
+	if Source is SphereShape3D:
+		var Ball := SphereShape3D.new()
+		Ball.radius = (Source as SphereShape3D).radius * Factor
+		return Ball
+	if Source is CylinderShape3D:
+		var Can := CylinderShape3D.new()
+		Can.radius = (Source as CylinderShape3D).radius * Factor
+		Can.height = (Source as CylinderShape3D).height * Factor
+		return Can
+	if Source is ConvexPolygonShape3D:
+		var Hull := ConvexPolygonShape3D.new()
+		var Points := PackedVector3Array()
+		for Point in (Source as ConvexPolygonShape3D).points:
+			Points.append(Point * Factor)
+		Hull.points = Points
+		return Hull
+	var Fallback := BoxShape3D.new()
+	Fallback.size = Vector3.ONE * BlockStyles.BlockSize * Factor
+	return Fallback
+
+
+# MARK: Explode
+
+## Shatters a removed piece of colour `Kind` at `From` (world space) into `Count` thin flat shards - little planes, some square, some
+## triangular - that fly off `ExplodeSpeedFactor` times faster than a Mini Me fragment, in every direction. They bounce off the pieces still on
+## the board, the floor and each other, spin fast, fall under gravity, and fade like any flying piece.
+func Explode(Kind: int, From: Vector3, Count: int) -> void:
+	if Flyers.size() >= MaxFragments:
+		return
+	for Index in Count:
+		var Size := randf_range(ShardSize.x, ShardSize.y)
+		var Body := RigidBody3D.new()
+		Body.physics_material_override = FlyerMaterial
+		Body.angular_damp = 0.4
+		Body.linear_damp = 0.05
+		Body.gravity_scale = RemovalSpeed * RemovalSpeed * RemovalGravity
+		# They move fast and are thin, so a frame's step could carry one clean through a piece: check the whole path.
+		Body.continuous_cd = true
+		Body.mass = 0.05
+		Body.collision_layer = PhysicsLayers.Floor
+		Body.collision_mask = PhysicsLayers.Floor | PhysicsLayers.Board
+		var Shape := CollisionShape3D.new()
+		var Plate := BoxShape3D.new()
+		Plate.size = Vector3(Size, Size, ShardThickness)
+		Shape.shape = Plate
+		Body.add_child(Shape)
+		# The shard itself: a flat square or triangle in the piece's colour, visible from both sides.
+		var Visual := MeshInstance3D.new()
+		Visual.mesh = ShardMesh(randi() % 2 == 0)
+		Visual.scale = Vector3(Size, Size, 1.0)
+		var Tint: StandardMaterial3D = Styles.Materials[Kind].duplicate()
+		Tint.cull_mode = BaseMaterial3D.CULL_DISABLED
+		Visual.material_override = Tint
+		Visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		Body.add_child(Visual)
+		Body.position = From + Vector3(randf_range(-0.3, 0.3), randf_range(-0.3, 0.3), randf_range(-0.3, 0.3))
+		add_child(Body)
+		var Direction := Vector3(randf_range(-1, 1), randf_range(-1, 1), randf_range(-1, 1))
+		if Direction.length() < 0.05:
+			Direction = Vector3.UP
+		Body.linear_velocity = Direction.normalized() * randf_range(MiniMeSpeed.x, MiniMeSpeed.y) * ExplodeSpeedFactor * RemovalSpeed
+		Body.angular_velocity = Vector3(randf_range(-30.0, 30.0), randf_range(-30.0, 30.0), randf_range(-30.0, 30.0))
+		# A shard has no black edge; the fade only needs a spare material for it.
+		Flyers.append({"Body": Body, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Styles.OutlineMaterial.duplicate(),
+				"Core": null, "StopsSpinning": false})
+
+
+## A flat shard facing +z: a unit square, or a right-angled triangle half its size, centred on its origin. Built once of each.
+func ShardMesh(Triangle: bool) -> Mesh:
+	if ShardMeshes.has(Triangle):
+		return ShardMeshes[Triangle]
+	var Tool := PieceMeshes.NewTool()
+	var Corners: Array[Vector3] = [Vector3(-0.5, -0.5, 0), Vector3(0.5, -0.5, 0), Vector3(0.5, 0.5, 0), Vector3(-0.5, 0.5, 0)]
+	if Triangle:
+		PieceMeshes.AddTriangle(Tool, [Corners[0], Corners[1], Corners[3]], [Vector2(0, 1), Vector2(1, 1), Vector2(0, 0)], [Vector3.BACK, Vector3.BACK, Vector3.BACK])
+	else:
+		PieceMeshes.AddTriangle(Tool, [Corners[0], Corners[1], Corners[2]], [Vector2(0, 1), Vector2(1, 1), Vector2(1, 0)], [Vector3.BACK, Vector3.BACK, Vector3.BACK])
+		PieceMeshes.AddTriangle(Tool, [Corners[0], Corners[2], Corners[3]], [Vector2(0, 1), Vector2(1, 0), Vector2(0, 0)], [Vector3.BACK, Vector3.BACK, Vector3.BACK])
+	var Result := Tool.commit()
+	ShardMeshes[Triangle] = Result
+	return Result
 
 
 # MARK: Each frame

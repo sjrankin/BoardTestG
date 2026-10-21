@@ -39,6 +39,9 @@ var AutoClock: float = 0.0
 var UserDown: Vector3 = Vector3.DOWN
 ## Whether lightning plays across a group as it is cleared. Set from the controls.
 var LightningEnabled: bool = true
+## How removed pieces leave: Fly Away (pop out, fall, fade) Mini Me (burst into at least 10 fast small copies) or Explode (shatter into flat shards, much faster). Set from the controls.
+enum RemovalEffects { FlyAway, MiniMe, Explode }
+var RemovalEffect: int = RemovalEffects.FlyAway
 ## Counts new games, so something waiting (the lightning) can tell the board it was waiting on has gone.
 var GameNumber: int = 0
 ## Whether the Blockers throw off plasma zaps. Set from the controls.
@@ -223,22 +226,57 @@ func SendFlying(Leaving: Array[Dictionary]) -> void:
 		var Node: Node3D = Entry["Node"]
 		if not is_instance_valid(Node):
 			continue
-		Flyers.Launch(Entry["Kind"], Node.global_position, global_basis)
-		Flyers.AddOriginBlocker(self, Node.position)
+		if RemovalEffect == RemovalEffects.Explode:
+			Flyers.Explode(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinShardsPerPiece, FlyerSystem.MaxShardsPerPiece))
+		elif RemovalEffect == RemovalEffects.MiniMe:
+			# The piece bursts where it stands; its cell stays open, so the fragments are free to leave it (or bounce back in).
+			Flyers.MiniMe(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinFragmentsPerPiece, FlyerSystem.MaxFragmentsPerPiece))
+		else:
+			# Out of the board's face, along its normal as it is turned right now.
+			Flyers.Launch(Entry["Kind"], Node.global_position, global_basis)
+			Flyers.AddOriginBlocker(self, Node.position)
 		Node.queue_free()
 	WaitingForVacate = true
 	VacateClock = 0.0
 
 
-## Clears a random playable group - used by Attract Mode.
+## Attract Mode's move: the largest playable group; among groups of the same size, the one closest on average to the bottom
+## (the bottom as the user sees it, so the same direction gravity pulls); among those still equal, one at random.
 func AttractStep() -> void:
 	if Busy or Model == null:
 		return
 	var Groups := Model.PlayableGroups()
 	if Groups.is_empty():
 		return
-	var Group: Array = Groups[randi() % Groups.size()]
-	TapCell(Group[0].x, Group[0].y)
+	var Down := GravityFromUser()
+	var Best: Array = []
+	var BestSize := 0
+	var BestDistance := INF
+	for Group in Groups:
+		var Distance := AverageDistanceFromBottom(Group, Down)
+		if Group.size() > BestSize or (Group.size() == BestSize and Distance < BestDistance - 0.0001):
+			Best = [Group]
+			BestSize = Group.size()
+			BestDistance = Distance
+		elif Group.size() == BestSize and absf(Distance - BestDistance) <= 0.0001:
+			Best.append(Group)
+	var Chosen: Array = Best[randi() % Best.size()]
+	TapCell(Chosen[0].x, Chosen[0].y)
+
+
+## How far, on average, the cells of a group are from the bottom edge of the board when gravity pulls toward `Down`.
+func AverageDistanceFromBottom(Group: Array, Down: Vector2i) -> float:
+	var Total := 0.0
+	for Cell in Group:
+		if Down == Vector2i(0, 1):
+			Total += Model.Height - 1 - Cell.y
+		elif Down == Vector2i(0, -1):
+			Total += Cell.y
+		elif Down == Vector2i(1, 0):
+			Total += Model.Width - 1 - Cell.x
+		else:
+			Total += Cell.x
+	return Total / Group.size()
 
 
 # MARK: Turning the board
