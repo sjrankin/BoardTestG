@@ -4,6 +4,8 @@ extends Node
 ##
 ##   --capture=DIR   play in Attract Mode, press Shuffle early, save screenshots into DIR, then quit
 ##   --shape=N       start with block shape N (0 cube, 1 sphere, 2 cone, 3 cylinder, 4 glow)
+##   --cube          start with the 3D cube instead of the 2D board (`--dims=WxHxD` sets its size)
+##   --switch        with --capture, switch between the 2D board and the 3D cube at frame 200
 ##   --yaw=DEG --tilt=DEG   start with the board turned
 ##   --rotate        start with Auto Rotate on
 ##   --lightning     with --capture, just clear one group and save screenshots through the lightning, then quit
@@ -19,7 +21,8 @@ extends Node
 const ShotFrames: Array[int] = [20, 35, 150, 330, 900]
 const LastFrame := 905
 
-var View: BoardView
+## The board being played: a `BoardView` or a `CubeView`.
+var View
 var Bar: ControlBar
 var Directory: String = ""
 var Burst: bool = false
@@ -34,10 +37,11 @@ static var SettingsRequested: bool = false
 static var FadeRequested: bool = false
 static var HintRequested: bool = false
 static var ShotRequested: bool = false
+static var SwitchRequested: bool = false
 
 
 ## Applies the startup options to the board and controls. Returns a runner if `--capture` was given, else null.
-static func FromCommandLine(TheView: BoardView, TheBar: ControlBar) -> CaptureRunner:
+static func FromCommandLine(TheView, TheBar: ControlBar) -> CaptureRunner:
 	var Runner: CaptureRunner = null
 	for Argument in OS.get_cmdline_user_args():
 		if Argument.begins_with("--shape="):
@@ -55,6 +59,8 @@ static func FromCommandLine(TheView: BoardView, TheBar: ControlBar) -> CaptureRu
 			TheView.RemovalEffect = BoardView.RemovalEffects.Explode
 		elif Argument == "--minime":
 			TheView.RemovalEffect = BoardView.RemovalEffects.MiniMe
+		elif Argument == "--switch":
+			SwitchRequested = true
 		elif Argument == "--shot":
 			ShotRequested = true
 		elif Argument == "--hint":
@@ -81,6 +87,9 @@ static func FromCommandLine(TheView: BoardView, TheBar: ControlBar) -> CaptureRu
 
 func _process(_Delta: float) -> void:
 	FrameCount += 1
+	View = get_parent().View
+	if SwitchRequested and FrameCount == 200:
+		get_parent().SwitchBoardType(not get_parent().Is3D)
 	if LightningDemo:
 		RunLightningDemo()
 		return

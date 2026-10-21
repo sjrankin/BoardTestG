@@ -20,7 +20,16 @@ const DragRadiansPerPixel := 0.008
 const MinCameraDistance := 4.0
 const MaxCameraDistance := 60.0
 
-var View: BoardView
+## The two boards: the 2D board and the 3D cube. `View` is the one being played (the other is out of the scene); both have the
+## same outside, so most of this file does not care which.
+var Board2D: BoardView
+var Board3D: CubeView
+var View
+var Is3D: bool = false
+var Dimensions2D := Vector2i(DefaultWidth, DefaultHeight)
+var Dimensions3D := Vector3i(DefaultWidth, DefaultHeight, DefaultWidth)
+var Colors: int = DefaultColors
+var Blockers: int = DefaultBlockers
 var Bar: ControlBar
 var CameraNode: Camera3D
 var CameraDistance: float = 0.0
@@ -35,15 +44,27 @@ func _ready() -> void:
 	get_window().size_changed.connect(UpdateSuperSampling)
 	CameraNode = SceneSetup.BuildEnvironment(self)
 	SceneSetup.BuildFloor(self)
-	View = BoardView.new()
-	add_child(View)
-	View.ScoreChanged.connect(func(Score: int) -> void: Bar.SetScore(Score))
-	View.BoardRebuilt.connect(FrameCamera)
+	Board2D = BoardView.new()
+	Board3D = CubeView.new()
+	Board3D.Styles = Board2D.Styles
+	for Board in [Board2D, Board3D]:
+		Board.ScoreChanged.connect(func(Score: int) -> void: Bar.SetScore(Score))
+		Board.BoardRebuilt.connect(FrameCamera)
 
 	var Width := clampi(int(GameSettings.Load("Width", DefaultWidth)), 3, 15)
 	var Height := clampi(int(GameSettings.Load("Height", DefaultHeight)), 3, 15)
-	var Colors := clampi(int(GameSettings.Load("Colors", DefaultColors)), 3, 8)
-	var Blockers := clampi(int(GameSettings.Load("Blockers", DefaultBlockers)), 0, 20)
+	Colors = clampi(int(GameSettings.Load("Colors", DefaultColors)), 3, 8)
+	Blockers = clampi(int(GameSettings.Load("Blockers", DefaultBlockers)), 0, 20)
+	Dimensions2D = Vector2i(Width, Height)
+	Dimensions3D = Vector3i(clampi(int(GameSettings.Load("CubeWidth", DefaultWidth)), 3, 15), clampi(int(GameSettings.Load("CubeHeight", DefaultHeight)), 3, 15), clampi(int(GameSettings.Load("CubeDepth", DefaultWidth)), 3, 15))
+	Is3D = int(GameSettings.Load("BoardType", 0)) == 1
+	for Argument in OS.get_cmdline_user_args():
+		if Argument == "--cube":
+			Is3D = true
+		elif Argument.begins_with("--dims="):
+			var Parts := Argument.trim_prefix("--dims=").split("x")
+			if Parts.size() == 3:
+				Dimensions3D = Vector3i(clampi(int(Parts[0]), 3, 15), clampi(int(Parts[1]), 3, 15), clampi(int(Parts[2]), 3, 15))
 	var ShapeIndex := int(GameSettings.Load("BlockShape", 0))
 	var Speed := clampf(float(GameSettings.Load("RemovalSpeed", 1.0)), ControlBar.MinRemovalSpeed, ControlBar.MaxRemovalSpeed)
 	var Lightning := bool(GameSettings.Load("Lightning", true))
@@ -57,10 +78,11 @@ func _ready() -> void:
 	Bar = ControlBar.new()
 	add_child(Bar)
 	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, BlockStyles.ShapeNames)
+	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.ShapeSelected.connect(OnShapeSelected)
 	Bar.ShufflePressed.connect(func() -> void: View.ShuffleNow())
 	Bar.RecenterPressed.connect(OnRecenterPressed)
-	Bar.AutoRotateToggled.connect(func(On: bool) -> void: View.AutoRotate = On)
+	Bar.AutoRotateToggled.connect(func(On: bool) -> void: Both("AutoRotate", On))
 	Bar.BoardSetPressed.connect(OnBoardSet)
 	Bar.RemovalSpeedChanged.connect(OnRemovalSpeedChanged)
 	Bar.LightningToggled.connect(OnLightningToggled)
@@ -69,14 +91,18 @@ func _ready() -> void:
 	Bar.FrameRateChanged.connect(OnFrameRateChanged)
 	Bar.ScreenshotPressed.connect(TakeScreenshot)
 	Bar.RemovalEffectChanged.connect(OnRemovalEffectChanged)
-	View.RemovalSpeed = Speed
-	View.LightningEnabled = Lightning
-	View.RemovalEffect = RemovalEffect
-	View.BlockerZapsEnabled = BlockerZaps
-	View.Styles.SetSpecular(Specular)
+	Both("RemovalSpeed", Speed)
+	Both("LightningEnabled", Lightning)
+	Both("RemovalEffect", RemovalEffect)
+	Both("BlockerZapsEnabled", BlockerZaps)
+	Board2D.Styles.SetSpecular(Specular)
 	SceneSetup.SetSpecular(Specular)
+	Board2D.Styles.CurrentShape = clampi(ShapeIndex, 0, BlockStyles.Shapes.size() - 1)
+	View = Board3D if Is3D else Board2D
+	add_child(View)
 	View.SetBlockShape(ShapeIndex)
-	View.NewGame(Width, Height, Colors, Blockers)
+	ShowBoardType()
+	StartGame()
 
 	var Runner := CaptureRunner.FromCommandLine(View, Bar)
 	if Runner != null:
@@ -100,12 +126,12 @@ func UpdateSuperSampling() -> void:
 
 ## Backs the camera off far enough to see the whole board, aimed at its middle.
 func FrameCamera() -> void:
-	CameraDistance = maxf(View.Model.Width, View.Model.Height) * 2.5
+	CameraDistance = View.FrameDistance()
 	PlaceCamera()
 
 
 func PlaceCamera() -> void:
-	var Middle := Vector3(0, View.Model.Height * 0.38, 0)
+	var Middle: Vector3 = View.FrameMiddle()
 	CameraNode.position = Middle + Vector3(0, CameraDistance * 0.34, CameraDistance)
 	CameraNode.look_at(Middle, Vector3.UP)
 
@@ -122,12 +148,60 @@ func OnRecenterPressed() -> void:
 	View.Recenter()
 
 
-func OnBoardSet(Width: int, Height: int, Colors: int, Blockers: int) -> void:
-	GameSettings.Save("Width", Width)
-	GameSettings.Save("Height", Height)
+## Applies a setting to both boards (the one not being played keeps it for when it is switched to).
+func Both(Name: String, Value: Variant) -> void:
+	Board2D.set(Name, Value)
+	Board3D.set(Name, Value)
+
+
+## Starts a new game on the board being played, with its own size.
+func StartGame() -> void:
+	if Is3D:
+		View.NewGame(Dimensions3D.x, Dimensions3D.y, Dimensions3D.z, Colors)
+	else:
+		View.NewGame(Dimensions2D.x, Dimensions2D.y, Colors, Blockers)
+
+
+## Shows the size fields of the board being played.
+func ShowBoardType() -> void:
+	if Is3D:
+		Bar.ShowBoardType(true, Dimensions3D.x, Dimensions3D.y, Dimensions3D.z, Blockers)
+	else:
+		Bar.ShowBoardType(false, Dimensions2D.x, Dimensions2D.y, Dimensions3D.z, Blockers)
+
+
+## Switches between the 2D board and the 3D cube. The board left behind is taken out of the scene (with whatever was flying
+## off it), and the other starts a new game with its own size.
+func SwitchBoardType(To3D: bool) -> void:
+	if To3D == Is3D:
+		return
+	Bar.AttractCheck.button_pressed = false
+	View.Flyers.Reset()
+	remove_child(View)
+	Is3D = To3D
+	View = Board3D if Is3D else Board2D
+	add_child(View)
+	View.SetBlockShape(Board2D.Styles.CurrentShape)
+	GameSettings.Save("BoardType", 1 if Is3D else 0)
+	ShowBoardType()
+	StartGame()
+
+
+func OnBoardSet(Width: int, Height: int, Depth: int, NewColors: int, NewBlockers: int) -> void:
+	Colors = NewColors
 	GameSettings.Save("Colors", Colors)
-	GameSettings.Save("Blockers", Blockers)
-	View.NewGame(Width, Height, Colors, Blockers)
+	if Is3D:
+		Dimensions3D = Vector3i(Width, Height, Depth)
+		GameSettings.Save("CubeWidth", Width)
+		GameSettings.Save("CubeHeight", Height)
+		GameSettings.Save("CubeDepth", Depth)
+	else:
+		Dimensions2D = Vector2i(Width, Height)
+		Blockers = NewBlockers
+		GameSettings.Save("Width", Width)
+		GameSettings.Save("Height", Height)
+		GameSettings.Save("Blockers", Blockers)
+	StartGame()
 
 
 ## Saves the game's picture (without the on-screen controls) as a PNG in the Pictures folder, named with the date and time.
@@ -146,7 +220,7 @@ func TakeScreenshot() -> void:
 
 
 func OnRemovalEffectChanged(Index: int) -> void:
-	View.RemovalEffect = Index
+	Both("RemovalEffect", Index)
 	GameSettings.Save("RemovalEffect", Index)
 
 
@@ -156,24 +230,25 @@ func OnFrameRateChanged(Limit: int) -> void:
 
 
 func OnSpecularToggled(On: bool) -> void:
-	View.Styles.SetSpecular(On)
+	Board2D.Styles.SetSpecular(On)
 	SceneSetup.SetSpecular(On)
 	GameSettings.Save("Specular", On)
 
 
 func OnBlockerZapsToggled(On: bool) -> void:
-	View.SetBlockerZaps(On)
+	Board2D.SetBlockerZaps(On)
+	Board3D.SetBlockerZaps(On)
 	GameSettings.Save("BlockerZaps", On)
 
 
 func OnLightningToggled(On: bool) -> void:
-	View.LightningEnabled = On
+	Both("LightningEnabled", On)
 	GameSettings.Save("Lightning", On)
 
 
 ## Applies the slider's value to every piece removed from now on, and remembers it between launches.
 func OnRemovalSpeedChanged(Value: float) -> void:
-	View.RemovalSpeed = Value
+	Both("RemovalSpeed", Value)
 	GameSettings.Save("RemovalSpeed", Value)
 
 
@@ -188,7 +263,7 @@ func _input(Event: InputEvent) -> void:
 		Counts = true
 	elif Event is InputEventMouseMotion and Event.button_mask != 0:
 		Counts = true
-	if Counts:
+	if Counts and View is BoardView:
 		View.Hint.RecordActivity()
 
 

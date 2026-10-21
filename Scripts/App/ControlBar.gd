@@ -8,7 +8,9 @@ signal ShapeSelected(Index: int)
 signal ShufflePressed
 signal RecenterPressed
 signal AutoRotateToggled(On: bool)
-signal BoardSetPressed(Width: int, Height: int, Colors: int, Blockers: int)
+## 0 is the 2D board, 1 the 3D cube.
+signal BoardTypeSelected(Index: int)
+signal BoardSetPressed(Width: int, Height: int, Depth: int, Colors: int, Blockers: int)
 signal RemovalSpeedChanged(Value: float)
 signal LightningToggled(On: bool)
 ## 0 is Fly Away, 1 is Mini Me, 2 is Explode (the order of `RemovalEffectNames`).
@@ -25,6 +27,7 @@ const MaxRemovalSpeed := 3.0
 const WidthRange := Vector2i(3, 15)
 const ColorsRange := Vector2i(3, 8)
 const BlockersRange := Vector2i(0, 20)
+const BoardTypeNames: Array[String] = ["2D Board", "3D Cube"]
 ## The choices in the Frame Rate list (0 is "No Limit").
 const FrameRateLimits: Array[int] = [30, 60, 120, 0]
 const GearSize := 64.0
@@ -47,6 +50,8 @@ var WidthField: SpinBox
 var HeightField: SpinBox
 var ColorsField: SpinBox
 var BlockersField: SpinBox
+var DepthField: SpinBox
+var BoardTypePicker: OptionButton
 var SpeedSlider: HSlider
 var SpeedLabel: Label
 var Readouts: HBoxContainer
@@ -249,11 +254,28 @@ func BuildGameSection(Section: VBoxContainer) -> void:
 
 
 func BuildBoardSection(Section: VBoxContainer, Width: int, Height: int, Colors: int, Blockers: int) -> void:
+	BoardTypePicker = OptionButton.new()
+	for Name in BoardTypeNames:
+		BoardTypePicker.add_item(Name)
+	BoardTypePicker.item_selected.connect(func(Index: int) -> void: BoardTypeSelected.emit(Index))
+	AddRow(Section, "Board Type", BoardTypePicker)
 	WidthField = AddFieldRow(Section, "Width", Width, WidthRange)
 	HeightField = AddFieldRow(Section, "Height", Height, WidthRange)
+	DepthField = AddFieldRow(Section, "Depth", Width, WidthRange)
 	ColorsField = AddFieldRow(Section, "Colors", Colors, ColorsRange)
 	BlockersField = AddFieldRow(Section, "Blockers", Blockers, BlockersRange)
 	AddButtonRow(Section, "Start a new game with these", "New Game", OnSetPressed)
+
+
+## Shows the fields of the board type: the 2D board's width, height and Blockers, or the cube's width, height and depth.
+func ShowBoardType(Is3D: bool, Width: int, Height: int, Depth: int, Blockers: int) -> void:
+	BoardTypePicker.selected = 1 if Is3D else 0
+	WidthField.value = Width
+	HeightField.value = Height
+	DepthField.value = Depth
+	BlockersField.value = Blockers
+	DepthField.get_parent().visible = Is3D
+	BlockersField.get_parent().visible = not Is3D
 
 
 func BuildPiecesSection(Section: VBoxContainer, ShapeIndex: int, Specular: bool, ShapeNames: Array[String]) -> void:
@@ -384,7 +406,7 @@ func AddButtonRow(Parent: Control, Title: String, ButtonText: String, Action: Ca
 func OnSetPressed() -> void:
 	AttractCheck.button_pressed = false
 	CloseSettings()
-	BoardSetPressed.emit(int(WidthField.value), int(HeightField.value), int(ColorsField.value), int(BlockersField.value))
+	BoardSetPressed.emit(int(WidthField.value), int(HeightField.value), int(DepthField.value), int(ColorsField.value), int(BlockersField.value))
 
 
 func OnSpeedChanged(NewSpeed: float) -> void:

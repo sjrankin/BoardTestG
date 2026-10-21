@@ -279,6 +279,15 @@ func AverageDistanceFromBottom(Group: Array, Down: Vector2i) -> float:
 	return Total / Group.size()
 
 
+## How far the camera should stand back to see the whole board, and where it should look.
+func FrameDistance() -> float:
+	return maxf(Model.Width, Model.Height) * 2.5
+
+
+func FrameMiddle() -> Vector3:
+	return Vector3(0, Model.Height * 0.38, 0)
+
+
 # MARK: Turning the board
 
 func ApplyRotation() -> void:
