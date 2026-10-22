@@ -12,7 +12,7 @@ At a glance:
 - Groups can wrap around the edges of the cube into other faces.
 - Ten piece shapes and six ways to remove pieces.
 - An attract mode that plays the game by itself.
-- Tested on a Mac and on an iPad and will run where Godot runs.
+- Tested on a Mac and on an iPad and should run wherever Godot runs.
 
 View of BoardTestG in 2D mode when initially started.\
 <img src="Images/InitialBoard.gif" alt="Initial view of BoardTestG" width="600">\
@@ -33,9 +33,9 @@ A game engine was selected for better physics and graphics. Apple's SceneKit is 
 - **Attract mode:** turn it on in Settings and the game plays itself.
 
 # Modes of Play
-In both 2D and 3D, games proceed by removing a minimum of three contiguous pieces of the same color. The player taps or clicks (depending on the platform) on such a group, and those pieces are removed. Existing pieces from above fill in the newly created gaps, and new pieces fall in from above to backfill that gap.
+In both 2D and 3D, games proceed by removing a minimum of three contiguous pieces of the same color. The player taps or clicks (depending on the platform) on such a group, and those pieces are removed. Existing pieces from above fill in the newly created gaps, and new pieces fall in from above to backfill the gaps.
 
-In 3D mode, groups may wrap around the cube edge into other faces and vertices. When the player removes such a group, all pieces in the group, regardless of the face, are removed.\
+In 3D mode, groups may wrap around the cube edge into other faces and vertices. When the player removes such a group, all pieces in the group, regardless of the face, are removed.
 
 Animation of multi-face group removal.\
 <img src="Images/CrossFaceRemoval.gif" alt="Removing groups on multiple faces" width="600">\
@@ -53,16 +53,16 @@ Hints and blockers do not apply in 3D mode.
 
 View of a 3D cube with each side playable.\
 <img src="Images/3DCube.png" alt="3D cube image" width="400">\
-Any of the piece shapes can be used in 3D mode (the joined shapes join across the edges of the cube too). Removed pieces pop out of the face they were on (out between the two faces, for a piece on an edge) and then fall, bounce and fade under the same physics as in 2D.\
+Any of the piece shapes can be used in 3D mode (the joined shapes join across the edges of the cube too). Removed pieces pop out of the face they were on (out between the two faces, for a piece on an edge) and then (with Fly Away, the default) fall, bounce and fade under the same physics as in 2D.\
 In attract mode the game picks one of the six faces at random and removes the largest group on it, and the cube turns slowly about all three axes. The turning can be switched off in Settings (Random rotation in Attract Mode).
 
 ### Falling/Filling
 Removed blocks may arc out or fall in other ways depending on how the player selects the removal effect but in all cases, the gravitational vector (down in the view) is used for dropping blocks. When adding new blocks, they fall in from the top to the required location and slot themselves into the newly empty spots. 2D is much simpler than the 3D shape but follows analogously.
 
-In 3D the cube turns under gravity, so "the top" is whichever surface is highest at that moment. A gap is filled by the piece above it falling in, running down a face, round an edge and onto the next face. New pieces enter only at the top, so as the cube turns, a different surface is the one that gets fed. A gap that nothing can fall into (a level underside, say) is filled by a piece sliding in along the surface, and the gap that leaves is then filled from the top.
+In 3D the cube turns under gravity, so "the top" is whichever surface is highest at that moment. A gap is filled by the piece above it falling in, running down a face, around an edge and onto the next face. New pieces enter only at the top, so as the cube turns, a different surface is the one that gets fed. A gap that nothing can fall into (a level underside, say) is filled by a piece sliding in along the surface, and the gap that leaves is then filled from the top.
 
 ## Game Play
-Commercially-available match 3 games have a certain number of turns before the player loses at a given level. BoardTestG will have different ways of playing (none of these is implemented yet):
+Commercially available match 3 games have a certain number of turns before the player loses at a given level. BoardTestG will have different ways of playing (none of these is implemented yet):
 ### Turn-Limited
 This is what is most commonly used by commercial games - if the player does not reach a certain goal in a pre-defined number of turns, the player loses and must start that level over again.
 ### Minimum Goal
@@ -71,8 +71,6 @@ This mode allows the player to make as many turns as desired but the goal is to 
 The player must reach the level's goal within a certain amount of time (pre-defined for each level).
 ### No Goal
 The player may play as long as they want on a certain level. A score is kept but there is no pressure to continue to another level.
-
-These modes are planned for the next stage of implementation.
 
 ## Object Hierarchy
 Game elements are defined in a hierarchy. At the top level is the scene in which the game is played. It includes background elements as well as the game board itself.
@@ -97,7 +95,7 @@ Non-blocking pieces are playable and are what the player interacts with. Non-blo
 9. Joined Cylinders
 10. Joined Glow
 
-Not all of the shapes are really playable in the sense they are easy to use.\
+Not all of the shapes are really playable in the sense that they are easy to use.\
 As mentioned, colors are used to determine a group. Shapes are for visual interest only.
 
 Some of the pieces are shown in the following images.
@@ -127,7 +125,7 @@ Short animation of a blocker piece.\
 <img src="Images/Blocker.gif" alt="Animated view of a blocker piece." width="400">
 
 ## Implementation
-The initial program, BoardTestRK was implemented with Apple's SDKs and Swift. I created a framework and then used Claude to fill it in.
+The initial program, BoardTestRK, was implemented with Apple's SDKs and Swift. I created a framework and then used Claude to fill it in.
 
 ### Claude
 For BoardTestG, the port was done by Claude, as well as all further implementation. The program was implemented this way as a test to see how well Claude could be used to port from RealityKit (it did a good job). For maximum compatibility, I told Claude to use Godot's native scripting system rather than C# or Swift.
@@ -139,7 +137,7 @@ I added a lightning effect to show certain types of action - blockers have light
 ### Physics
 BoardTestG makes heavy use of Godot's physics engine in piece movement. This includes:
 
-1. Piece removal - there are six ways a piece can be removed. Three use physics: 1) fly out and bounce until they timeout and fade away (Fly Away), 2) break into smaller versions of the large piece and bounce on the board (Mini Me), and 3) explode into small flat pieces and bounce on the board (Explode). The bouncing uses a lot of physics processing. (Modeling of the shape to roll as expected as well as collision detection and interactions.) Three play in place, over half a second at most, and need no physics: 4) disappear at once (Disappear), 5) spin on a random axis while shrinking to nothing (Spin and Shrink), and 6) spin at full size and then disappear (Spin then Vanish). New pieces wait for the effect to finish before they fall in.
+1. Piece removal - there are six ways a piece can be removed. Three use physics: 1) fly out and bounce until they time out and fade away (Fly Away), 2) break into smaller versions of the large piece and bounce on the board (Mini Me), and 3) explode into small flat pieces and bounce on the board (Explode). The bouncing uses a lot of physics processing. (Modeling of the shape to roll as expected as well as collision detection and interactions.) Three play in place, over half a second at most, and need no physics: 4) disappear at once (Disappear), 5) spin on a random axis while shrinking to nothing (Spin and Shrink), and 6) spin at full size and then disappear (Spin then Vanish). New pieces wait for the effect to finish before they fall in.
 2. General piece motion in the board.
 
 Examples of block removal physics are shown below:
@@ -162,7 +160,7 @@ Godot 4.6 or newer. Built and tested on 4.7.2.
 ## Compiling
 I usually just compile via the Godot IDE and run and test the code there: open `project.godot` in Godot and press Play. I exported the game to an iPad and ran it there as well (see `iOS/README.md`; use a real device, not the Simulator).
 
-Be sure to use the proper version of the export modules (they must match the version of Godot you are running). The resultant binary can be quite large.
+Be sure to use the proper version of the export modules (they must match the version of Godot you are running). The resulting binary can be quite large.
 
 BoardTestG has a built-in rate limiter for mobile devices but the player can change that in the settings.
 
