@@ -12,11 +12,11 @@ At a glance:
 - Groups can wrap around the edges of the cube into other faces.
 - Ten piece shapes and six ways to remove pieces.
 - An attract mode that plays the game by itself.
-- Runs on a Mac and on an iPad.
+- Tested on a Mac and on an iPad and will run where Godot runs.
 
 View of BoardTestG in 2D mode when initially started.\
 <img src="Images/InitialBoard.gif" alt="Initial view of BoardTestG" width="600">\
-In the animation above, the checkerboard is a hint to the user showing the next group that can be removed (it uses a very simple no-look-ahead algorithm). The two blue blobs with lightning are non-movable/removable blocks.
+In the animation above, the checkerboard is a hint to the player showing the next group that can be removed (it uses a very simple no-look-ahead algorithm). The two blue blobs with lightning are non-movable/removable blocks.
 
 View of BoardTestG in 3D mode with automatic piece removal.\
 <img src="Images/3DAttractMode.gif" alt="Animation of attract mode in 3D" width="600">\
@@ -33,17 +33,21 @@ A game engine was selected for better physics and graphics. Apple's SceneKit is 
 - **Attract mode:** turn it on in Settings and the game plays itself.
 
 # Modes of Play
-In both 2D and 3D, games proceed by removing a minimum of three contiguous pieces of the same color. The user taps or clicks (depending on the platform) on such a group, and those pieces are removed. Existing pieces from above fill in the newly created gaps, and new pieces fall in from above to backfill that gap.
+In both 2D and 3D, games proceed by removing a minimum of three contiguous pieces of the same color. The player taps or clicks (depending on the platform) on such a group, and those pieces are removed. Existing pieces from above fill in the newly created gaps, and new pieces fall in from above to backfill that gap.
 
-In 3D mode, groups may wrap around the cube edge into other faces and vertices. When the user removes such a group, all pieces in the group, regardless of the face, are removed.
+In 3D mode, groups may wrap around the cube edge into other faces and vertices. When the player removes such a group, all pieces in the group, regardless of the face, are removed.\
+
+Animation of multi-face group removal.\
+<img src="Images/CrossFaceRemoval.gif" alt="Removing groups on multiple faces" width="600">\
+You can see groups that are on multiple faces removed as a whole.
 
 ## 2D
-This is similar to a normal match 3 game, only with some 3D elements. This mode includes blockers that cannot be moved, and the usual game play (including hints for the user). The game play is the usual match 3 mechanism where the player taps on a group of pieces of at least three in quantity. The game will remove those pieces and drop existing pieces into place, backfilling if new pieces are needed. For debug purposes (and for the attract mode), if there are no playable groups, the user can reshuffle the board (or in attract mode, reshuffling happens automatically).
+This is similar to a normal match 3 game, only with some 3D elements. This mode includes blockers that cannot be moved, and the usual game play (including hints for the player). The game play is the usual match 3 mechanism where the player taps on a group of pieces of at least three in quantity. The game will remove those pieces and drop existing pieces into place, backfilling if new pieces are needed. For debug purposes (and for the attract mode), if there are no playable groups, the player can reshuffle the board (or in attract mode, reshuffling happens automatically).
 
 The animation below shows a short sequence of the 2D board in attract mode.\
 <img src="Images/GamePlay2D.gif" alt="BoardTestG in 2D attract mode" width="600">
 ## 3D
-The board is turned into a cube (or other 3D shape). (I experimented with non-cubic shapes (spheres, cones, etc) but lining up pieces was not necessarily straightforward.) The user interacts with each face of the cube and the pieces fly away as in a 2D board. The interesting thing is a group can extend across faces so when the player removes some pieces from one face, another face is changed. Currently, the user can rotate the cube at will. Eventually, I will add a mode to restrict play to a single face at a time, which will be interesting given the possibility of changing other faces when working on a different face.\
+The board is turned into a cube (or other 3D shape). (I experimented with non-cubic shapes (spheres, cones, etc) but lining up pieces was not necessarily straightforward.) The player interacts with each face of the cube and the pieces fly away as in a 2D board. The interesting thing is a group can extend across faces so when the player removes some pieces from one face, another face is changed. Currently, the player can rotate the cube at will. Eventually, I will add a mode to restrict play to a single face at a time, which will be interesting given the possibility of changing other faces when working on a different face.\
 The player can change the width, height and depth of the cube (3 to 15 each) in Settings.\
 Hints and blockers do not apply in 3D mode.
 
@@ -58,13 +62,13 @@ Removed blocks may arc out or fall in other ways depending on how the player sel
 In 3D the cube turns under gravity, so "the top" is whichever surface is highest at that moment. A gap is filled by the piece above it falling in, running down a face, round an edge and onto the next face. New pieces enter only at the top, so as the cube turns, a different surface is the one that gets fed. A gap that nothing can fall into (a level underside, say) is filled by a piece sliding in along the surface, and the gap that leaves is then filled from the top.
 
 ## Game Play
-Commercially-available match 3 games have a certain number of turns before the user loses at a given level. BoardTestG will have different ways of playing (none of these is implemented yet):
+Commercially-available match 3 games have a certain number of turns before the player loses at a given level. BoardTestG will have different ways of playing (none of these is implemented yet):
 ### Turn-Limited
-This is what is most commonly used by commercial games - if the user does not reach a certain goal in a pre-defined number of turns, the user loses and must start that level over again.
+This is what is most commonly used by commercial games - if the player does not reach a certain goal in a pre-defined number of turns, the player loses and must start that level over again.
 ### Minimum Goal
 This mode allows the player to make as many turns as desired but the goal is to make the fewest possible. 
 ### Timed
-The user must reach the level's goal within a certain amount of time (pre-defined for each level).
+The player must reach the level's goal within a certain amount of time (pre-defined for each level).
 ### No Goal
 The player may play as long as they want on a certain level. A score is kept but there is no pressure to continue to another level.
 
@@ -81,7 +85,7 @@ Additionally, game statistics are shown in the background - a score and elapsed 
 The playable object consists of a set of pieces (also called blocks). The pieces are arranged into a grid. In 3D mode, the pieces are arranged into a hollow cube.
 #### Piece Types
 ##### Non-Blockers
-Non-blocking pieces are playable and are what the user interacts with. Non-blocking pieces have a surface color from a limited set of colors and a shape selected by the user. Current shapes are:
+Non-blocking pieces are playable and are what the player interacts with. Non-blocking pieces have a surface color from a limited set of colors and a shape selected by the player. Current shapes are:
 1. Cube
 2. Sphere
 3. Rounded Cube
@@ -130,7 +134,7 @@ For BoardTestG, the port was done by Claude, as well as all further implementati
 
 ### Graphics
 Native graphics capabilities of Godot were used extensively. I was most curious about the features missing from RealityKit such as shadows and diffuse glows, both supported natively in Godot.\
-I added a lightning effect to show certain types of action - blockers have lightning to show they are "dangerous" and when the user taps a group, a lightning effect is shown as well.
+I added a lightning effect to show certain types of action - blockers have lightning to show they are "dangerous" and when the player taps a group, a lightning effect is shown as well.
 
 ### Physics
 BoardTestG makes heavy use of Godot's physics engine in piece movement. This includes:
@@ -166,7 +170,7 @@ The rules are tested without a window (see `CLAUDE.md` for the commands). `CLAUD
 
 # Roadmap
 - [ ] **Game play:** scoring goals and duration, as described under Game Play above (Turn-Limited, Minimum Goal, Timed, No Goal).
-- [ ] **Levels:** BoardTestG effectively has only one level at this time. The size of the board can be controlled by the user and blockers can be added randomly. To be viable, a set of pre-canned levels needs to be added. It may be possible to create levels programmatically but care would need to be taken to not create impossible levels.
+- [ ] **Levels:** BoardTestG effectively has only one level at this time. The size of the board can be controlled by the player and blockers can be added randomly. To be viable, a set of pre-canned levels needs to be added. It may be possible to create levels programmatically but care would need to be taken to not create impossible levels.
 - [ ] **Special pieces.**
 - [ ] **Single-face mode in 3D:** restrict play to one face of the cube at a time.
 - [ ] **Clean-up:** remove debug and fine-tuning code and UI.
