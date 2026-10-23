@@ -13,6 +13,7 @@ extends Node
 ##   --fade          with --capture, hold one piece still in front of the board and fade it, saving a shot every 2 frames
 ##   --hint          with --capture, show the idle hint right away (frame 25) and save shots at 20 and 35
 ##   --shot          with --capture, press the screenshot button at frame 25 and save a normal shot at 35 (to see the button)
+##   --background=N  (read by Main) start with background N (0 gray, 1 sky, 2 night, 3 star flight)
 ##   --explode       start with the Explode removal effect (flat shards)
 ##   --effect=N      start with removal effect N (0 fly away, 1 mini me, 2 explode, 3 disappear, 4 spin and shrink, 5 spin then vanish)
 ##   --minime        start with the Mini Me removal effect

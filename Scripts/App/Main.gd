@@ -43,7 +43,14 @@ func _ready() -> void:
 	UpdateSuperSampling()
 	get_window().size_changed.connect(UpdateSuperSampling)
 	CameraNode = SceneSetup.BuildEnvironment(self)
+	var Background := clampi(int(GameSettings.Load("Background", Backgrounds.Kinds.Gray)), 0, Backgrounds.Names.size() - 1)
+	for Argument in OS.get_cmdline_user_args():
+		if Argument.begins_with("--background="):
+			Background = clampi(int(Argument.trim_prefix("--background=")), 0, Backgrounds.Names.size() - 1)
+	SceneSetup.BackgroundKind = Background
 	SceneSetup.BuildFloor(self)
+	UpdateBackgroundAspect()
+	get_viewport().size_changed.connect(UpdateBackgroundAspect)
 	Board2D = BoardView.new()
 	Board3D = CubeView.new()
 	Board3D.Styles = Board2D.Styles
@@ -101,6 +108,9 @@ func _ready() -> void:
 	Both("BlockerZapsEnabled", BlockerZaps)
 	Board2D.Styles.SetSpecular(Specular)
 	SceneSetup.SetSpecular(Specular)
+	SceneSetup.SetBackground(Background)
+	Bar.BackgroundPicker.selected = Background
+	Bar.BackgroundSelected.connect(OnBackgroundSelected)
 	Board2D.Styles.CurrentShape = clampi(ShapeIndex, 0, BlockStyles.Shapes.size() - 1)
 	View = Board3D if Is3D else Board2D
 	add_child(View)
@@ -141,6 +151,17 @@ func PlaceCamera() -> void:
 
 
 # MARK: Controls
+
+## Tells the sky shaders the window's shape.
+func UpdateBackgroundAspect() -> void:
+	var Size := get_viewport().get_visible_rect().size
+	Backgrounds.SetAspect(Size.x / maxf(Size.y, 1.0))
+
+
+func OnBackgroundSelected(Index: int) -> void:
+	SceneSetup.SetBackground(Index)
+	GameSettings.Save("Background", Index)
+
 
 func OnShapeSelected(Index: int) -> void:
 	View.SetBlockShape(Index)

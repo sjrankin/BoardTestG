@@ -19,6 +19,8 @@ signal LightningToggled(On: bool)
 signal RemovalEffectChanged(Index: int)
 signal BlockerZapsToggled(On: bool)
 signal SpecularToggled(On: bool)
+## The index into `Backgrounds.Names`.
+signal BackgroundSelected(Index: int)
 ## The most frames per second to draw; 0 means no limit.
 signal FrameRateChanged(Limit: int)
 ## The camera button (Mac only) was pressed.
@@ -47,6 +49,7 @@ var SpecularCheck: Button
 var ScoreLabel: Label
 var FpsLabel: Label
 var ShapePicker: OptionButton
+var BackgroundPicker: OptionButton
 var FrameRatePicker: OptionButton
 var RemovalEffectPicker: OptionButton
 var WidthField: SpinBox
@@ -226,6 +229,7 @@ func BuildSettingsWindow(Width: int, Height: int, Colors: int, Blockers: int, Sh
 	BuildGameSection(AddSection(Sections, "Game"))
 	BuildBoardSection(AddSection(Sections, "Board"), Width, Height, Colors, Blockers)
 	BuildPiecesSection(AddSection(Sections, "Pieces"), ShapeIndex, Specular, ShapeNames)
+	BuildSceneSection(AddSection(Sections, "Scene"))
 	BuildEffectsSection(AddSection(Sections, "Effects"), Lightning, BlockerZaps, RemovalSpeed, RemovalEffect)
 	BuildPerformanceSection(AddSection(Sections, "Performance"), FrameRate)
 	get_window().size_changed.connect(FitSettingsWindow.bind(Dialog, Scroller))
@@ -293,6 +297,14 @@ func BuildPiecesSection(Section: VBoxContainer, ShapeIndex: int, Specular: bool,
 	AddRow(Section, "Block Shape", ShapePicker)
 	SpecularCheck = AddCheckRow(Section, "Specular (glossy pieces)", Specular)
 	SpecularCheck.toggled.connect(func(On: bool) -> void: SpecularToggled.emit(On))
+
+
+func BuildSceneSection(Section: VBoxContainer) -> void:
+	BackgroundPicker = OptionButton.new()
+	for Name in Backgrounds.Names:
+		BackgroundPicker.add_item(Name)
+	BackgroundPicker.item_selected.connect(func(Index: int) -> void: BackgroundSelected.emit(Index))
+	AddRow(Section, "Background", BackgroundPicker)
 
 
 func BuildEffectsSection(Section: VBoxContainer, Lightning: bool, BlockerZaps: bool, RemovalSpeed: float, RemovalEffect: int) -> void:
