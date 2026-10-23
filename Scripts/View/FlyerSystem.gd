@@ -9,6 +9,8 @@ const MaxFlyers := 24
 ## Mini Me: the most fragments alive at once, how many a piece breaks into (at least 10), how big each is compared with the piece,
 ## and how fast they leave (world units per second at Removal Speed 1).
 const MaxFragments := 900
+## The most shards a whole-board explosion makes in all (see `ExplodeAll`).
+const ShardBudget := 800
 const MinFragmentsPerPiece := 10
 const MaxFragmentsPerPiece := 14
 const FragmentScale := 0.34
@@ -267,6 +269,14 @@ func Explode(Kind: int, From: Vector3, Count: int) -> void:
 		# A shard has no black edge; the fade only needs a spare material for it.
 		Flyers.append({"Body": Body, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Styles.OutlineMaterial.duplicate(),
 				"Core": null, "StopsSpinning": false})
+
+
+## Shatters a whole board at once: `Entries` is [{Kind, Position}] (world space), one per piece. The shards share `ShardBudget`
+## between the pieces (fewer each on a big board), so the physics never has more than `MaxFragments` to move.
+func ExplodeAll(Entries: Array[Dictionary]) -> void:
+	var Each := clampi(ShardBudget / maxi(Entries.size(), 1), 1, MaxShardsPerPiece)
+	for Entry in Entries:
+		Explode(Entry["Kind"], Entry["Position"], Each)
 
 
 ## A flat shard facing +z: a unit square, or a right-angled triangle half its size, centred on its origin. Built once of each.

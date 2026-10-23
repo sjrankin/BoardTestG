@@ -215,6 +215,35 @@ func TapCell(Col: int, Row: int) -> void:
 	SendFlying(Leaving)
 
 
+## Shatters every piece on the board (a won level): the board is left empty and the shards fly, and any Blockers fly off out of
+## sight. The caller starts the next game.
+func ExplodeAll() -> void:
+	Busy = true
+	Hint.Clear()
+	var Camera := get_viewport().get_camera_3d()
+	for Light in BlockerLights:
+		if Camera != null and is_instance_valid(Light):
+			# The next game waits for them like it waits for any removal effect.
+			InPlaceActive += 1
+			Light.Gone.connect(OnInPlaceDone.bind(GameNumber))
+			Light.FlyAway(Camera)
+	BlockerLights.clear()
+	var Entries: Array[Dictionary] = []
+	for Col in Model.Width:
+		for Row in Model.Height:
+			var Piece := Model.GetPiece(Col, Row)
+			if Piece == null:
+				continue
+			var Node: Node3D = PieceNodes.get(Piece.Id)
+			if Node != null:
+				Entries.append({"Kind": Piece.Kind, "Position": Node.global_position})
+				Joins.Strip(Node)
+				Node.queue_free()
+			PieceNodes.erase(Piece.Id)
+			Model.SetPiece(Col, Row, null)
+	Flyers.ExplodeAll(Entries)
+
+
 ## Lightning arcs across the pieces about to leave, while they are still in place; returns when it is time for them to go.
 func CrackleLightning(Leaving: Array[Dictionary]) -> void:
 	var Game := GameNumber

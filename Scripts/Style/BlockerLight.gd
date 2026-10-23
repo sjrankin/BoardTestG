@@ -41,6 +41,11 @@ const MaxBranches := 7
 ## No branch reaches past the edge of the Blocker's own cell: half a cell from the center.
 const BranchReach := Vector2(0.22, 0.5)
 const ZapWidth := 0.09
+## Flying away (a won level): how long it takes, how far it ends up from where it started (far outside the view), and how far
+## its path bends to the side (all in cells).
+const FlyDuration := 0.8
+const FlyDistance := 90.0
+const FlyBend := 25.0
 ## Brighter than 1 so the scene's glow (bloom) picks them up.
 const RedZap := Color(2.2, 0.18, 0.12)
 const YellowZap := Color(2.4, 2.0, 0.45)
@@ -51,6 +56,10 @@ const OrangeZap := Color(2.4, 0.9, 0.1)
 const ColorVariation := 0.1
 const HueVariation := 0.03
 
+## Emitted when the Blocker has flown out of sight (and is freed).
+signal Gone
+
+var Body: StaticBody3D
 var ZapMesh: ImmediateMesh
 var ZapMaterial: StandardMaterial3D
 var SinceZap: float = 1.0
@@ -85,6 +94,7 @@ static func Create(Styles: BlockStyles, At: Vector3) -> BlockerLight:
 	Shape.shape = Styles.ColliderShapes[BlockStyles.Shapes.Sphere]
 	Collider.add_child(Shape)
 	Light.add_child(Collider)
+	Light.Body = Collider
 	var Zaps := MeshInstance3D.new()
 	Light.ZapMesh = ImmediateMesh.new()
 	Zaps.mesh = Light.ZapMesh
@@ -117,6 +127,24 @@ static func MakeBallMaterial(Tint: Color, Strength: float, Priority: int) -> Sha
 	Material.set_shader_parameter("Strength", Strength)
 	Material.render_priority = Priority
 	return Material
+
+
+## Flies off quickly on a randomly curving path, accelerating, until it is far outside the view of `Camera`, then frees itself.
+## It stops being solid at once, so the pieces that burst out of the board do not bounce off it.
+func FlyAway(Camera: Camera3D) -> void:
+	if Body != null:
+		Body.collision_layer = 0
+	var Start := global_position
+	var Angle := randf() * TAU
+	var Across := Camera.global_basis.x * cos(Angle) + Camera.global_basis.y * sin(Angle)
+	var Aside := Camera.global_basis.x * -sin(Angle) + Camera.global_basis.y * cos(Angle)
+	var End := Start + Across * FlyDistance
+	var Control := Start.lerp(End, 0.5) + Aside * randf_range(-1.0, 1.0) * FlyBend + Camera.global_basis.z * randf_range(0.0, FlyBend)
+	var Flight := create_tween().set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	Flight.tween_method(func(T: float) -> void: global_position = Start.lerp(Control, T).lerp(Control.lerp(End, T), T), 0.0, 1.0, FlyDuration)
+	Flight.finished.connect(func() -> void:
+		Gone.emit()
+		queue_free())
 
 
 func _ready() -> void:

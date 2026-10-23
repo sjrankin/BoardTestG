@@ -37,6 +37,8 @@ var PlayMode: GameMode.Kinds = GameMode.Default
 ## Which of `Levels.All()` is being played; -1 plays the board set in Settings with the default level. Every launch starts on
 ## Level 1 (on the 2D board, as levels are 2D).
 var LevelIndex: int = 0
+## Bumped by every new game, so a win or loss waiting to carry on (`WinSequence`) knows its game is gone.
+var SequenceId: int = 0
 var CameraNode: Camera3D
 var CameraDistance: float = 0.0
 var AttractClock: float = 0.0
@@ -104,6 +106,8 @@ func _ready() -> void:
 	Bar.LevelPicker.selected = LevelIndex + 1
 	Bar.GameModeSelected.connect(OnGameModeSelected)
 	Bar.LevelSelected.connect(OnLevelSelected)
+	Bar.AttractCheck.toggled.connect(OnAttractToggled)
+	Session.StateChanged.connect(OnSessionState)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
 	Bar.ShapeSelected.connect(OnShapeSelected)
@@ -200,6 +204,7 @@ func Both(Name: String, Value: Variant) -> void:
 
 ## Starts a new game on the board being played, with its own size.
 func StartGame() -> void:
+	SequenceId += 1
 	Bar.ClearGoals()
 	if LevelIndex >= 0 and not Is3D:
 		var Level := Levels.All()[LevelIndex]
@@ -248,6 +253,61 @@ func OnGameModeSelected(Index: int) -> void:
 
 
 ## Plays level `Index` (0 is "no level": the Settings board). Levels are 2D, so this switches to the 2D board.
+## Attract Mode plays the board the Settings window shows (its size, colors and Blockers; the block shape is already shared),
+## not a level's: turning it on starts a new game with those values.
+func OnAttractToggled(On: bool) -> void:
+	if On:
+		OnBoardSet(int(Bar.WidthField.value), int(Bar.HeightField.value), int(Bar.DepthField.value), int(Bar.ColorsField.value), int(Bar.BlockersField.value))
+
+
+func OnSessionState(NewState: GameSession.States) -> void:
+	if NewState == GameSession.States.Won:
+		WinSequence()
+	elif NewState == GameSession.States.Lost and Bar.AttractCheck.button_pressed:
+		RestartAfterLoss()
+
+
+## Whether nothing is left flying: no removal effect playing and no shards or pieces in the air. (Not `Busy`: that stays set on
+## an exploded board, which is never played again.)
+func ShardsSettled() -> bool:
+	return View.InPlaceActive == 0 and (View.Flyers == null or View.Flyers.Flyers.is_empty())
+
+
+## Waits (up to `Seconds`) until `Needs` is true; false if a new game began meanwhile.
+func WaitForBoard(Id: int, Seconds: float, Needs: Callable) -> bool:
+	var Waited := 0.0
+	while not Needs.call() and Waited < Seconds:
+		await get_tree().process_frame
+		Waited += get_process_delta_time()
+		if Id != SequenceId:
+			return false
+	return Id == SequenceId
+
+
+## A won level: once the last group's drop and refill are done, every piece explodes; when the shards have settled the next
+## level starts (the last level is followed by the first).
+func WinSequence() -> void:
+	var Id := SequenceId
+	if not await WaitForBoard(Id, 12.0, func() -> bool: return not View.Busy):
+		return
+	View.ExplodeAll()
+	await get_tree().process_frame
+	if not await WaitForBoard(Id, 12.0, ShardsSettled):
+		return
+	if LevelIndex >= 0 and not Is3D:
+		LevelIndex = (LevelIndex + 1) % Levels.Count()
+		Bar.LevelPicker.selected = LevelIndex + 1
+	StartGame()
+
+
+## Attract Mode only: a lost game starts over after a pause, so it keeps playing.
+func RestartAfterLoss() -> void:
+	var Id := SequenceId
+	await get_tree().create_timer(2.0).timeout
+	if Id == SequenceId and Bar.AttractCheck.button_pressed:
+		StartGame()
+
+
 func ClearLevel() -> void:
 	LevelIndex = -1
 	Bar.LevelPicker.selected = 0
@@ -384,6 +444,7 @@ func _unhandled_input(Event: InputEvent) -> void:
 
 func _process(Delta: float) -> void:
 	Session.Paused = Bar.Overlay.visible
+	Bar.SetLevel("Level %d" % (LevelIndex + 1) if LevelIndex >= 0 and not Is3D else "")
 	Bar.SetGoals(Session.Remaining, Session.GoalOrder, BlockStyles.Palette)
 	Board2D.Hint.WantedKinds = Session.WantedKinds()
 	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), Session.StatusText())

@@ -55,6 +55,7 @@ var GoalBox: VBoxContainer
 var GoalBadges: Dictionary = {}
 var ClockLabel: Label
 var StatusLabel: Label
+var LevelLabel: Label
 var GameModePicker: OptionButton
 var LevelPicker: OptionButton
 var FpsLabel: Label
@@ -120,6 +121,11 @@ func SetGame(ClockTitle: String, ClockText: String, StatusText: String) -> void:
 	StatusLabel.text = StatusText
 
 
+## The level's number, centered at the top ("" shows nothing).
+func SetLevel(Text: String) -> void:
+	LevelLabel.text = Text
+
+
 func SetFps(Fps: int) -> void:
 	FpsLabel.text = "FPS %d" % Fps
 
@@ -144,13 +150,21 @@ func BuildReadouts() -> void:
 	FpsLabel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	FpsLabel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(FpsLabel)
-	StatusLabel = Label.new()
-	StatusLabel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	StatusLabel.add_theme_font_size_override("font_size", 56)
-	StatusLabel.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	StatusLabel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	StatusLabel.position.y = 24.0
-	add_child(StatusLabel)
+	LevelLabel = AddTopCenterLabel(44, 10.0)
+	StatusLabel = AddTopCenterLabel(56, 70.0)
+
+
+## A label across the top of the window with its text centered, `Top` pixels from the top.
+func AddTopCenterLabel(FontSize: int, Top: float) -> Label:
+	var Line := Label.new()
+	Line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	Line.add_theme_font_size_override("font_size", FontSize)
+	Line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	Line.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	Line.offset_top = Top
+	Line.offset_bottom = Top + FontSize * 1.4
+	add_child(Line)
+	return Line
 
 
 func AddReadout(Title: String, Value: String) -> Label:

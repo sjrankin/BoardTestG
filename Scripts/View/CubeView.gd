@@ -237,6 +237,24 @@ func TapCell(Cell: Vector3i) -> void:
 	SendFlying(Leaving)
 
 
+## Shatters every piece on the cube (a won level): the cube is left empty and the shards fly. The caller starts the next game.
+func ExplodeAll() -> void:
+	Busy = true
+	var Entries: Array[Dictionary] = []
+	for Cell in Model.Cells.keys():
+		var Piece := Model.GetPiece(Cell)
+		if Piece == null:
+			continue
+		var Node: Node3D = PieceNodes.get(Piece.Id)
+		if Node != null:
+			Entries.append({"Kind": Piece.Kind, "Position": Node.global_position})
+			Joins.Strip(Node)
+			Node.queue_free()
+		PieceNodes.erase(Piece.Id)
+		Model.SetPiece(Cell, null)
+	Flyers.ExplodeAll(Entries)
+
+
 ## Lightning arcs across the pieces about to leave, while they are still in place; returns when it is time for them to go.
 func CrackleLightning(Leaving: Array[Dictionary]) -> void:
 	var Game := GameNumber
