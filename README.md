@@ -161,20 +161,63 @@ Explode fractures the pieces and flings the result across the board.\
 I used a minimal user interface for the game. It is mostly debug-controls and ways to test game play. A final UI will consist of controls on the main page (e.g., play, reset, and the like). See "How to Play" above for the current controls.
 
 ## Requirements
-Godot 4.6 or newer. Built and tested on 4.7.2.
+Godot 4.6 or newer. Built and tested on 4.7.2. Running on a Mac needs only Godot; building for an iPhone or iPad also needs Xcode (below).
 
-## Compiling
-I usually just compile via the Godot IDE and run and test the code there: open `project.godot` in Godot and press Play. I exported the game to an iPad and ran it there as well (see `iOS/README.md`; use a real device, not the Simulator).
+## Setting up for development
+This section written by Claude.
 
-Be sure to use the proper version of the export modules (they must match the version of Godot you are running). The resulting binary can be quite large.
+### 1. Tools (macOS)
+- **Godot 4.7.2** (4.6 and newer should work), installed as `/Applications/Godot.app`.
+- **Git** (`xcode-select --install` provides it).
+- Only for iPhone and iPad builds: **Xcode** from the App Store (a recent release with the iOS 26 SDK). Open it once so it
+  finishes installing its components, then run `sudo xcode-select -s /Applications/Xcode.app`.
 
-BoardTestG has a built-in rate limiter for mobile devices but the player can change that in the settings.
+### 2. Get the code and run it
+    git clone https://github.com/sjrankin/BoardTestG.git
+    cd BoardTestG
+    /Applications/Godot.app/Contents/MacOS/Godot --headless --path . --import
 
-The rules are tested without a window (see `CLAUDE.md` for the commands). `CLAUDE.md` also describes how the code is laid out.
+The import step is needed the first time (it builds Godot's class cache). Then open `project.godot` in Godot (Project Manager >
+Import) and press Play (F5).
+
+### 3. Run the tests (optional)
+    G=/Applications/Godot.app/Contents/MacOS/Godot
+    $G --headless --path . --script res://Tests/TestGameSession.gd
+
+Also `TestBoardModel.gd`, `TestCubeModel.gd` and `TestCubeView.gd`. Each prints `ALL PASS`; a script error can still end in
+`ALL PASS`, so read the whole output. `CLAUDE.md` describes how the code is laid out.
+
+### 4. Export templates (needed for any export)
+In Godot: Editor > Manage Export Templates > Download and Install. The templates must match the editor's version exactly
+(4.7.2). The exported binary can be quite large.
+
+### 5. On a Mac
+Pressing Play in the Godot editor is how this has been run and tested. The project also has a "macOS" export preset
+(Project > Export); it has no signing identity or team set and has not been tried on another machine, so set your own before
+exporting.
+
+### 6. On an iPhone or iPad
+You need an Apple ID added in Xcode (Settings > Accounts); a free account can install on your own device.
+1. In Project > Export > iOS, set **App Store Team ID** to your own team and **Bundle Identifier** to one you own (for example
+   `com.yourname.BoardTestG`). The preset in the repository has the owner's values; do not commit yours.
+2. Export (from the project folder):
+
+       $G --headless --path . --export-debug iOS iOS/XBoardTest.xcodeproj
+
+3. `cd iOS && python3 patch_project.py` (marks the Xcode project device-only).
+4. Open `iOS/XBoardTest.xcodeproj` in Xcode, choose your own team under Signing & Capabilities (automatic signing), pick your
+   iPhone or iPad as the run destination and press Run. The first time, trust your developer profile on the device (Settings >
+   General > VPN & Device Management).
+5. The device must run iOS 26 or later (the preset's minimum) and have Developer Mode on (Settings > Privacy & Security).
+
+Nothing under `iOS/` is committed except its notes and scripts, so the Xcode project only exists after step 2. Use a real
+device, not the Simulator: Godot 4.7.2's iOS template does not run on it (details in `iOS/README.md`).
+
+BoardTestG has a built-in rate limiter for mobile devices (60 per second) but the player can change that in the settings.
 
 # Roadmap
-- [ ] **Game play:** scoring goals and duration, as described under Game Play above (Turn-Limited, Minimum Goal, Timed, No Goal).
-- [ ] **Levels:** BoardTestG effectively has only one level at this time. The size of the board can be controlled by the player and blockers can be added randomly. To be viable, a set of pre-canned levels needs to be added. It may be possible to create levels programmatically but care would need to be taken to not create impossible levels.
+- [X] **Game play:** scoring goals and duration, as described under Game Play above (Turn-Limited, Minimum Goal, Timed, No Goal).
+- [X] **Levels:** BoardTestG effectively has only one level at this time. The size of the board can be controlled by the player and blockers can be added randomly. To be viable, a set of pre-canned levels needs to be added. It may be possible to create levels programmatically but care would need to be taken to not create impossible levels.
 - [ ] **Special pieces.**
 - [ ] **Single-face mode in 3D:** restrict play to one face of the cube at a time.
 - [ ] **Clean-up:** remove debug and fine-tuning code and UI.
