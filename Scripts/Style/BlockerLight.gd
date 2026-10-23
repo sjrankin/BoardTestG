@@ -2,8 +2,7 @@ class_name BlockerLight
 extends Node3D
 ## A Blocker: a bright indigo light that pulses. The same idea as the Glow piece - a halo and a core of light with no
 ## solid surface - but blended over what is behind it, denser, and swelling and dimming in a slow loop. It sits exactly
-## in its own cell, in line with the other pieces, and is drawn over the pieces beside it (which would otherwise cover
-## the parts of the light that reach into their cells - see `FaceOffset`). It is still solid to the pieces that fly about. Like a plasma
+## in its own cell, in line with the other pieces, and spreads over the pieces beside it where it reaches in front of them. It is still solid to the pieces that fly about. Like a plasma
 ## globe, it also throws off electrical zaps - a varying number of jagged branches radiating from its center, some red
 ## and some yellow or orange, each taking a new shape many times a second, and each tinted a little differently every time. The zaps are hidden by pieces in front of them (the
 ## halo and core are not, so a Blocker is easy to find).
@@ -14,10 +13,26 @@ const PulsePeriod := 1.4
 ## Sizes in cells: bigger and denser than a Glow piece's light, so it stands out against the pieces.
 const HaloSize := 2.6
 const CoreSize := 1.0
-## The glow is a flat decal lying just in front of the board's face (not turned to face the camera), so it spreads over the
-## neighboring pieces' faces like light, yet pieces nearer the camera - from the side, say - still cover it, and it can't be
-## seen through a piece. It sits this far (in cells; a hair in front of a piece's own face) from the cell's center.
-const FaceOffset := 0.5
+## The glow is a real ball of light centered on the cell (so it looks round from any side), drawn depth-tested: the pieces
+## around it cover the parts of the ball inside or behind them, so it spreads over the neighbors' faces only where it reaches
+## out in front of them, and it can't be seen through a piece. Each ball is shaded by how squarely its surface faces the
+## camera, so it fades smoothly to nothing at its rim: the same radial falloff the flat glow had (opaque at the middle, then
+## fading), solid out to `Solid` of the radius and gone at the rim.
+const BallShaderCode := """
+shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
+uniform vec4 Tint : source_color = vec4(0.24, 0.02, 0.8, 1.0);
+uniform float Strength = 1.0;
+void fragment() {
+	float Facing = abs(dot(normalize(NORMAL), normalize(VIEW)));
+	// Distance from the middle of the ball as it appears on screen, 0 at the center and 1 at the rim.
+	float R = sqrt(max(1.0 - Facing * Facing, 0.0));
+	float A = R < 0.4 ? mix(1.0, 0.9, R / 0.4) : (R < 0.7 ? mix(0.9, 0.4, (R - 0.4) / 0.3) : mix(0.4, 0.0, (R - 0.7) / 0.3));
+	ALBEDO = Tint.rgb;
+	ALPHA = A * Strength;
+}
+"""
+static var BallShader: Shader
 ## The zaps: how often they take a new shape (seconds; 0 is every frame, 0.07 was the choppy original), how many branches
 ## there can be, how far each reaches (in cells) and how thick it is.
 const ZapInterval := 0.035
@@ -52,28 +67,16 @@ static func Create(Styles: BlockStyles, At: Vector3) -> BlockerLight:
 	var Light := BlockerLight.new()
 	Light.position = At
 	var Halo := MeshInstance3D.new()
-	var HaloMesh := QuadMesh.new()
-	HaloMesh.size = Vector2.ONE * HaloSize
-	Halo.mesh = HaloMesh
-	var HaloMaterial := Styles.MakeGlowMaterial(Styles.BlockerFalloff, LightColor, 1.0, false)
-	HaloMaterial.no_depth_test = false
-	HaloMaterial.billboard_mode = BaseMaterial3D.BILLBOARD_DISABLED
-	HaloMaterial.render_priority = 1
+	Halo.mesh = MakeBall(HaloSize)
+	var HaloMaterial := MakeBallMaterial(LightColor, 1.0, 1)
 	Halo.material_override = HaloMaterial
 	Halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	Halo.position.z = FaceOffset
 	Light.add_child(Halo)
 	var Core := MeshInstance3D.new()
-	var CoreQuad := QuadMesh.new()
-	CoreQuad.size = Vector2.ONE * CoreSize
-	Core.mesh = CoreQuad
-	var CoreMaterial := Styles.MakeGlowMaterial(Styles.BlockerFalloff, LightColor.lerp(Color.WHITE, 0.2), 1.0, false)
-	CoreMaterial.no_depth_test = false
-	CoreMaterial.billboard_mode = BaseMaterial3D.BILLBOARD_DISABLED
-	CoreMaterial.render_priority = 2
+	Core.mesh = MakeBall(CoreSize)
+	var CoreMaterial := MakeBallMaterial(LightColor.lerp(Color.WHITE, 0.2), 1.0, 2)
 	Core.material_override = CoreMaterial
 	Core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	Core.position.z = FaceOffset + 0.005
 	Light.add_child(Core)
 	var Collider := StaticBody3D.new()
 	Collider.collision_layer = PhysicsLayers.Board
@@ -94,20 +97,42 @@ static func Create(Styles: BlockStyles, At: Vector3) -> BlockerLight:
 	return Light
 
 
+## A ball of light `Diameter` cells across, centered on the cell.
+static func MakeBall(Diameter: float) -> SphereMesh:
+	var Ball := SphereMesh.new()
+	Ball.radius = Diameter / 2.0
+	Ball.height = Diameter
+	Ball.radial_segments = 32
+	Ball.rings = 16
+	return Ball
+
+
+static func MakeBallMaterial(Tint: Color, Strength: float, Priority: int) -> ShaderMaterial:
+	if BallShader == null:
+		BallShader = Shader.new()
+		BallShader.code = BallShaderCode
+	var Material := ShaderMaterial.new()
+	Material.shader = BallShader
+	Material.set_shader_parameter("Tint", Tint)
+	Material.set_shader_parameter("Strength", Strength)
+	Material.render_priority = Priority
+	return Material
+
+
 func _ready() -> void:
 	var Halo := get_child(0) as MeshInstance3D
-	var HaloMaterial := Halo.material_override as StandardMaterial3D
-	var CoreMaterial := (get_child(1) as MeshInstance3D).material_override as StandardMaterial3D
+	var HaloMaterial := Halo.material_override as ShaderMaterial
+	var CoreMaterial := (get_child(1) as MeshInstance3D).material_override as ShaderMaterial
 	var Phase := randf() * TAU
 	var Pulse := create_tween().set_loops()
 	Pulse.tween_method(PulseStep.bind(Halo, HaloMaterial, CoreMaterial, Phase), 0.0, 1.0, PulsePeriod)
 
 
-func PulseStep(Progress: float, Halo: MeshInstance3D, HaloMaterial: StandardMaterial3D, CoreMaterial: StandardMaterial3D, Phase: float) -> void:
+func PulseStep(Progress: float, Halo: MeshInstance3D, HaloMaterial: ShaderMaterial, CoreMaterial: ShaderMaterial, Phase: float) -> void:
 	var Swell := 0.5 + 0.5 * sin(TAU * Progress + Phase)
 	Halo.scale = Vector3.ONE * lerpf(0.85, 1.15, Swell)
-	HaloMaterial.albedo_color.a = lerpf(0.8, 1.0, Swell)
-	CoreMaterial.albedo_color.a = lerpf(0.92, 1.0, Swell)
+	HaloMaterial.set_shader_parameter("Strength", lerpf(0.8, 1.0, Swell))
+	CoreMaterial.set_shader_parameter("Strength", lerpf(0.92, 1.0, Swell))
 
 
 func _process(Delta: float) -> void:

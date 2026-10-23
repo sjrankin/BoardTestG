@@ -63,14 +63,20 @@ In 3D the cube turns under gravity, so "the top" is whichever surface is highest
 
 ## Game Play
 Commercially available match 3 games have a certain number of turns before the player loses at a given level. BoardTestG will have different ways of playing (none of these is implemented yet):
-### Turn-Limited
-This is what is most commonly used by commercial games - if the player does not reach a certain goal in a pre-defined number of turns, the player loses and must start that level over again.
+### Piece Removal (implemented)
+The user must remove a set number of pieces from the board, based on color within a certain number of turns.
+
+<img src="Images/BoardTestColorRemoval2.png" alt="Game play in color removal" width="600">\
+This image shows the board in color removal game play. The circles to the upper-left show the colors and the quantity needed to be removed.
 ### Minimum Goal
-This mode allows the player to make as many turns as desired but the goal is to make the fewest possible. 
-### Timed
+This mode allows the player to make as many turns as desired but the goal is to make the fewest possible.  This is a form of the Zen mode. 
+### Timed (implemented)
 The player must reach the level's goal within a certain amount of time (pre-defined for each level).
-### No Goal
-The player may play as long as they want on a certain level. A score is kept but there is no pressure to continue to another level.
+### Zen (implemented)
+The player may play as long as they want on a certain level. A score is kept but there is no pressure to continue to another level. 
+
+## Levels
+Game levels are currently hard-coded in the app in `Levels.gd`.
 
 ## Object Hierarchy
 Game elements are defined in a hierarchy. At the top level is the scene in which the game is played. It includes background elements as well as the game board itself.

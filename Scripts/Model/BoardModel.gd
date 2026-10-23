@@ -50,7 +50,7 @@ var Paths: Dictionary = {}
 var PathPieces: Dictionary = {}
 
 
-func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0) -> void:
+func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0, Preset: Array[Vector3i] = []) -> void:
 	Width = maxi(NewWidth, 3)
 	Height = maxi(NewHeight, 3)
 	ColorCount = clampi(NewColorCount, 3, 8)
@@ -60,7 +60,7 @@ func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: i
 		Rng.seed = Seed
 	else:
 		Rng.randomize()
-	PlaceBlockers()
+	PlaceBlockers(Preset)
 	Deal()
 
 
@@ -174,14 +174,21 @@ func ClearCells() -> void:
 
 # MARK: Setup
 
-## Places up to `BlockerCount` Blockers at random, only where the remaining cells stay one connected region.
-func PlaceBlockers() -> void:
+## Places up to `BlockerCount` Blockers at random, only where the remaining cells stay one connected region - or, when `Preset`
+## is given, exactly on those cells (x = Col, y = Row; a level's).
+func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 	Blockers = []
 	for Col in Width:
 		var Column: Array = []
 		Column.resize(Height)
 		Column.fill(false)
 		Blockers.append(Column)
+	if not Preset.is_empty():
+		for Cell in Preset:
+			if InBoard(Cell.x, Cell.y):
+				Blockers[Cell.x][Cell.y] = true
+		BlockerCount = Preset.size()
+		return
 	var Placed := 0
 	var Tries := 0
 	while Placed < BlockerCount and Tries < 500:
@@ -297,11 +304,17 @@ func PlayableGroups() -> Array:
 
 
 ## The group to suggest: the largest of the playable groups; among equal ones, the one lowest on the board (the highest row).
+## With `Wanted` (colors still to remove), only groups of those colors count - unless there is none, then any group does.
 ## Empty if there is none.
-func LargestGroup() -> Array[Vector2i]:
+func LargestGroup(Wanted: Array[int] = []) -> Array[Vector2i]:
 	var Best: Array[Vector2i] = []
 	var BestLowest := -1
-	for Group in PlayableGroups():
+	var Groups := PlayableGroups()
+	if not Wanted.is_empty():
+		var OfWanted := Groups.filter(func(Group: Array) -> bool: return Wanted.has(GetPiece(Group[0].x, Group[0].y).Kind))
+		if not OfWanted.is_empty():
+			Groups = OfWanted
+	for Group in Groups:
 		var Lowest := 0
 		for Cell in Group:
 			Lowest = maxi(Lowest, Cell.y)

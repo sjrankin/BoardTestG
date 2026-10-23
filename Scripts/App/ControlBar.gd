@@ -5,6 +5,10 @@ extends CanvasLayer
 ## controls. It owns no game logic: it shows values and reports what the user did through signals.
 
 signal ShapeSelected(Index: int)
+## The play mode (`GameMode.Kinds`) picked in Settings > Game.
+signal GameModeSelected(Index: int)
+## A level picked in Settings > Game: 0 is none, 1 is `Levels.All()[0]`, and so on.
+signal LevelSelected(Index: int)
 signal ShufflePressed
 signal RecenterPressed
 signal AutoRotateToggled(On: bool)
@@ -46,7 +50,13 @@ var AttractSpinCheck: Button
 var LightningCheck: Button
 var BlockerZapsCheck: Button
 var SpecularCheck: Button
-var ScoreLabel: Label
+var GoalBox: VBoxContainer
+## Goal color (`Kind`) -> its badge, while pieces of it are still to remove.
+var GoalBadges: Dictionary = {}
+var ClockLabel: Label
+var StatusLabel: Label
+var GameModePicker: OptionButton
+var LevelPicker: OptionButton
 var FpsLabel: Label
 var ShapePicker: OptionButton
 var BackgroundPicker: OptionButton
@@ -60,7 +70,7 @@ var DepthField: SpinBox
 var BoardTypePicker: OptionButton
 var SpeedSlider: HSlider
 var SpeedLabel: Label
-var Readouts: HBoxContainer
+var Readouts: VBoxContainer
 var Gear: GearButton
 var Camera: CameraButton
 var Overlay: Control
@@ -77,24 +87,70 @@ func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int,
 	PlaceInsets()
 
 
-func SetScore(Score: int) -> void:
-	ScoreLabel.text = str(Score)
+## Shows a badge for each goal color with pieces still to remove (`Remaining`: Kind -> count, `Order`: the kinds in the level's
+## order, `Palette`: Kind -> color); a color that is done loses its badge.
+func SetGoals(Remaining: Dictionary, Order: Array[int], Palette: Array[Color]) -> void:
+	for Kind in Order:
+		var Left := int(Remaining[Kind])
+		if Left <= 0:
+			if GoalBadges.has(Kind):
+				(GoalBadges[Kind] as Control).queue_free()
+				GoalBadges.erase(Kind)
+			continue
+		if not GoalBadges.has(Kind):
+			var Badge := ColorGoalBadge.new()
+			Badge.Tint = Palette[Kind]
+			GoalBox.add_child(Badge)
+			GoalBadges[Kind] = Badge
+		(GoalBadges[Kind] as ColorGoalBadge).Remaining = Left
+
+
+## Takes every badge away (a new game).
+func ClearGoals() -> void:
+	for Badge in GoalBadges.values():
+		(Badge as Control).queue_free()
+	GoalBadges.clear()
+
+
+## The game's readouts: the clock (with its title, which depends on the play mode) and a status line.
+func SetGame(ClockTitle: String, ClockText: String, StatusText: String) -> void:
+	(ClockLabel.get_parent().get_child(0) as Label).text = ClockTitle
+	ClockLabel.get_parent().visible = not ClockTitle.is_empty()
+	ClockLabel.text = ClockText
+	StatusLabel.text = StatusText
 
 
 func SetFps(Fps: int) -> void:
-	FpsLabel.text = str(Fps)
+	FpsLabel.text = "FPS %d" % Fps
 
 
 # MARK: The top of the screen
 
-## The score and the frame rate, large, at the top left.
+## The clock with the goal's color badges under it, large, at the top left; the frame rate small at the bottom right.
 func BuildReadouts() -> void:
-	Readouts = HBoxContainer.new()
+	Readouts = VBoxContainer.new()
 	Readouts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	Readouts.add_theme_constant_override("separation", 18)
+	Readouts.add_theme_constant_override("separation", 8)
 	add_child(Readouts)
-	ScoreLabel = AddReadout("Score", "0")
-	FpsLabel = AddReadout("FPS", "")
+	ClockLabel = AddReadout("", "")
+	GoalBox = VBoxContainer.new()
+	GoalBox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	GoalBox.add_theme_constant_override("separation", 12)
+	Readouts.add_child(GoalBox)
+	FpsLabel = Label.new()
+	FpsLabel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	FpsLabel.add_theme_font_size_override("font_size", 24)
+	FpsLabel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	FpsLabel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	FpsLabel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	add_child(FpsLabel)
+	StatusLabel = Label.new()
+	StatusLabel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	StatusLabel.add_theme_font_size_override("font_size", 56)
+	StatusLabel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	StatusLabel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	StatusLabel.position.y = 24.0
+	add_child(StatusLabel)
 
 
 func AddReadout(Title: String, Value: String) -> Label:
@@ -148,6 +204,8 @@ func PlaceInsets() -> void:
 			Top = Safe.position.y / Scale
 			Right = maxf(WindowSize.x - Safe.end.x, 0.0) / Scale
 	Readouts.position = Vector2(EdgeMargin + Left, EdgeMargin + Top)
+	FpsLabel.offset_right = -(EdgeMargin + Right)
+	FpsLabel.offset_bottom = -EdgeMargin
 	Gear.offset_right = -(EdgeMargin + Right)
 	Gear.offset_left = Gear.offset_right - GearSize
 	Gear.offset_top = EdgeMargin + Top
@@ -249,6 +307,21 @@ func OnBackdropInput(Event: InputEvent) -> void:
 
 
 func BuildGameSection(Section: VBoxContainer) -> void:
+	GameModePicker = OptionButton.new()
+	for Name in GameMode.Names:
+		GameModePicker.add_item(Name)
+	GameModePicker.item_selected.connect(func(Index: int) -> void:
+		CloseSettings()
+		GameModeSelected.emit(Index))
+	AddRow(Section, "Play Mode (starts a new game)", GameModePicker)
+	LevelPicker = OptionButton.new()
+	LevelPicker.add_item("None (Board settings)")
+	for Index in Levels.Count():
+		LevelPicker.add_item("Level %d" % (Index + 1))
+	LevelPicker.item_selected.connect(func(Index: int) -> void:
+		CloseSettings()
+		LevelSelected.emit(Index))
+	AddRow(Section, "Level (2D board, starts a new game)", LevelPicker)
 	AddButtonRow(Section, "Shuffle the pieces", "Shuffle", func() -> void:
 		CloseSettings()
 		ShufflePressed.emit())

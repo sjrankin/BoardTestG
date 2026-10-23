@@ -7,6 +7,8 @@ extends Node3D
 ## The node sits at the board's middle and turns about it.
 
 signal ScoreChanged(NewScore: int)
+## A tap removed a group of `Size` pieces of color `Kind`.
+signal GroupRemoved(Kind: int, Size: int)
 signal BoardRebuilt
 
 const FallDuration := 0.35
@@ -67,7 +69,7 @@ var InPlaceActive: int = 0
 
 # MARK: Game lifecycle
 
-func NewGame(Width: int, Height: int, Colors: int, Blockers: int) -> void:
+func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = []) -> void:
 	for Child in get_children():
 		Child.queue_free()
 	PieceNodes.clear()
@@ -82,7 +84,7 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int) -> void:
 	PendingTweens = 0
 	InPlaceActive = 0
 	GameNumber += 1
-	Model = BoardModel.new(Width, Height, Colors, Blockers)
+	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers)
 	Hint.Clear()
 	MovingIds.clear()
 	Joins.Model = Model
@@ -196,6 +198,8 @@ func TapCell(Col: int, Row: int) -> void:
 	Busy = true
 	var Removed := Model.Remove(Group)
 	ScoreChanged.emit(Model.Score)
+	if not Removed.is_empty():
+		GroupRemoved.emit((Removed[0]["Piece"] as BoardModel.PieceData).Kind, Removed.size())
 	var Leaving: Array[Dictionary] = []
 	for Entry in Removed:
 		var Piece: BoardModel.PieceData = Entry["Piece"]

@@ -31,6 +31,12 @@ var Dimensions3D := Vector3i(DefaultWidth, DefaultHeight, DefaultWidth)
 var Colors: int = DefaultColors
 var Blockers: int = DefaultBlockers
 var Bar: ControlBar
+## The game in progress: play mode, level, turns and time.
+var Session := GameSession.new()
+var PlayMode: GameMode.Kinds = GameMode.Default
+## Which of `Levels.All()` is being played; -1 plays the board set in Settings with the default level. Every launch starts on
+## Level 1 (on the 2D board, as levels are 2D).
+var LevelIndex: int = 0
 var CameraNode: Camera3D
 var CameraDistance: float = 0.0
 var AttractClock: float = 0.0
@@ -55,8 +61,10 @@ func _ready() -> void:
 	Board3D = CubeView.new()
 	Board3D.Styles = Board2D.Styles
 	for Board in [Board2D, Board3D]:
-		Board.ScoreChanged.connect(func(Score: int) -> void: Bar.SetScore(Score))
 		Board.BoardRebuilt.connect(FrameCamera)
+		Board.GroupRemoved.connect(Session.RecordRemoval)
+	add_child(Session)
+	PlayMode = clampi(int(GameSettings.Load("PlayMode", GameMode.Default)), 0, GameMode.Names.size() - 1) as GameMode.Kinds
 
 	var Width := clampi(int(GameSettings.Load("Width", DefaultWidth)), 3, 15)
 	var Height := clampi(int(GameSettings.Load("Height", DefaultHeight)), 3, 15)
@@ -64,10 +72,15 @@ func _ready() -> void:
 	Blockers = clampi(int(GameSettings.Load("Blockers", DefaultBlockers)), 0, 20)
 	Dimensions2D = Vector2i(Width, Height)
 	Dimensions3D = Vector3i(clampi(int(GameSettings.Load("CubeWidth", DefaultWidth)), 3, 15), clampi(int(GameSettings.Load("CubeHeight", DefaultHeight)), 3, 15), clampi(int(GameSettings.Load("CubeDepth", DefaultWidth)), 3, 15))
-	Is3D = int(GameSettings.Load("BoardType", 0)) == 1
+	Is3D = false
+	LevelIndex = 0
 	for Argument in OS.get_cmdline_user_args():
 		if Argument == "--cube":
 			Is3D = true
+		elif Argument.begins_with("--level="):
+			# Plays that level (1 to 10) on the 2D board.
+			LevelIndex = clampi(int(Argument.trim_prefix("--level=")) - 1, -1, Levels.Count() - 1)
+			Is3D = LevelIndex < 0 and Is3D
 		elif Argument.begins_with("--dims="):
 			var Parts := Argument.trim_prefix("--dims=").split("x")
 			if Parts.size() == 3:
@@ -85,6 +98,12 @@ func _ready() -> void:
 	Bar = ControlBar.new()
 	add_child(Bar)
 	Bar.Setup(Width, Height, Colors, Blockers, ShapeIndex, Speed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, BlockStyles.ShapeNames)
+	Bar.GameModePicker.selected = PlayMode
+	if Is3D:
+		LevelIndex = -1
+	Bar.LevelPicker.selected = LevelIndex + 1
+	Bar.GameModeSelected.connect(OnGameModeSelected)
+	Bar.LevelSelected.connect(OnLevelSelected)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
 	Bar.ShapeSelected.connect(OnShapeSelected)
@@ -181,6 +200,13 @@ func Both(Name: String, Value: Variant) -> void:
 
 ## Starts a new game on the board being played, with its own size.
 func StartGame() -> void:
+	Bar.ClearGoals()
+	if LevelIndex >= 0 and not Is3D:
+		var Level := Levels.All()[LevelIndex]
+		Session.Start(PlayMode, Level)
+		View.NewGame(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), Level.PresetBlockers)
+		return
+	Session.Start(PlayMode, LevelDefinition.Default(Is3D, Dimensions3D if Is3D else Vector3i(Dimensions2D.x, Dimensions2D.y, 0)))
 	if Is3D:
 		View.NewGame(Dimensions3D.x, Dimensions3D.y, Dimensions3D.z, Colors)
 	else:
@@ -201,6 +227,8 @@ func SwitchBoardType(To3D: bool) -> void:
 	if To3D == Is3D:
 		return
 	Bar.AttractCheck.button_pressed = false
+	if To3D:
+		ClearLevel()
 	View.Flyers.Reset()
 	remove_child(View)
 	Is3D = To3D
@@ -212,9 +240,34 @@ func SwitchBoardType(To3D: bool) -> void:
 	StartGame()
 
 
+func OnGameModeSelected(Index: int) -> void:
+	PlayMode = Index as GameMode.Kinds
+	GameSettings.Save("PlayMode", Index)
+	Bar.AttractCheck.button_pressed = false
+	StartGame()
+
+
+## Plays level `Index` (0 is "no level": the Settings board). Levels are 2D, so this switches to the 2D board.
+func ClearLevel() -> void:
+	LevelIndex = -1
+	Bar.LevelPicker.selected = 0
+
+
+func OnLevelSelected(Index: int) -> void:
+	LevelIndex = Index - 1
+	Bar.AttractCheck.button_pressed = false
+	if LevelIndex >= 0 and Is3D:
+		Bar.BoardTypePicker.selected = 0
+		SwitchBoardType(false)
+	else:
+		StartGame()
+
+
 func OnBoardSet(Width: int, Height: int, Depth: int, NewColors: int, NewBlockers: int) -> void:
 	Colors = NewColors
 	GameSettings.Save("Colors", Colors)
+	# A board set by hand is not a level.
+	ClearLevel()
 	if Is3D:
 		Dimensions3D = Vector3i(Width, Height, Depth)
 		GameSettings.Save("CubeWidth", Width)
@@ -330,10 +383,14 @@ func _unhandled_input(Event: InputEvent) -> void:
 
 
 func _process(Delta: float) -> void:
+	Session.Paused = Bar.Overlay.visible
+	Bar.SetGoals(Session.Remaining, Session.GoalOrder, BlockStyles.Palette)
+	Board2D.Hint.WantedKinds = Session.WantedKinds()
+	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), Session.StatusText())
 	View.UserDown = -CameraNode.global_basis.y
 	View.AttractActive = Bar.AttractCheck.button_pressed
 	Bar.SetFps(int(Engine.get_frames_per_second()))
-	if Bar.AttractCheck.button_pressed and not View.Busy:
+	if Bar.AttractCheck.button_pressed and not View.Busy and Session.CanPlay():
 		AttractClock += Delta
 		if AttractClock >= AttractDelay:
 			AttractClock = 0.0

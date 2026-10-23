@@ -28,6 +28,8 @@ var PieceNodes: Dictionary
 ## Seconds since the last input.
 var IdleTime: float = 0.0
 var HintedIds: Array = []
+## The colors the goal still needs (set by `Main`): the hint is for the largest group of one of them. Empty: any color.
+var WantedKinds: Array[int] = []
 var CheckerTexture: ImageTexture
 ## One hint material per shape (see `MaterialFor`).
 var HintMaterials: Dictionary = {}
@@ -141,7 +143,7 @@ func Tick(Delta: float, Allowed: bool) -> void:
 func Show() -> void:
 	if Styles.IsGlow():
 		return
-	var Group := Model.LargestGroup()
+	var Group := Model.LargestGroup(WantedKinds)
 	if Group.is_empty():
 		return
 	for Cell in Group:

@@ -8,6 +8,8 @@ extends Node3D
 ## the cube clears the floor at any turn, and turns about its middle.
 
 signal ScoreChanged(NewScore: int)
+## A tap removed a group of `Size` pieces of color `Kind`.
+signal GroupRemoved(Kind: int, Size: int)
 signal BoardRebuilt
 
 const Pitch := BlockStyles.Pitch
@@ -218,6 +220,8 @@ func TapCell(Cell: Vector3i) -> void:
 	Busy = true
 	var Removed := Model.Remove(Group)
 	ScoreChanged.emit(Model.Score)
+	if not Removed.is_empty():
+		GroupRemoved.emit((Removed[0]["Piece"] as BoardModel.PieceData).Kind, Removed.size())
 	var Leaving: Array[Dictionary] = []
 	for Entry in Removed:
 		var Piece: BoardModel.PieceData = Entry["Piece"]
