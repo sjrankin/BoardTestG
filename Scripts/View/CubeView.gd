@@ -11,8 +11,12 @@ signal ScoreChanged(NewScore: int)
 ## A tap removed a group of `Size` pieces of color `Kind`.
 signal GroupRemoved(Kind: int, Size: int)
 signal BoardRebuilt
+## Attract Mode only: after a drop no group of three or more is left to remove.
+signal NoPlayableGroups
 
 const Pitch := BlockStyles.Pitch
+## How far the cube is turned about the vertical while the Malicious "turn and lock" setting is on (a corner toward the viewer).
+const LockedYaw := PI / 4.0
 const FallDuration := 0.35
 const AutoYawRate := 0.3
 const AutoTiltSwing := 0.55
@@ -64,6 +68,12 @@ var AttractActive: bool = false
 ## Whether Attract Mode also turns the cube slowly (random rotation). Set from the controls.
 var AttractSpin: bool = true
 var Busy: bool = false
+## Malicious (Settings): the cube is held turned `LockedYaw` and cannot be turned; a veil hides every piece of color `VeilKind`
+## (-1 = none). (The cube has no Blockers to move.)
+var TurnLocked: bool = false
+var VeilKind: int = -1
+## Set by `Main` while the game is not being played (a level won or lost): taps, shuffles and Attract Mode moves do nothing.
+var InputLocked: bool = false
 var PieceNodes: Dictionary = {}
 ## The joined shapes (see `CubeJoins`), and the ids of pieces that are not at rest (they have no joins).
 var Joins := CubeJoins.new()
@@ -104,6 +114,10 @@ func NewGame(Width: int, Height: int, Depth: int, Colors: int) -> void:
 	Yaw = FaceTurns[Face].x
 	Tilt = FaceTurns[Face].y
 	Roll = 0.0
+	VeilKind = -1
+	if TurnLocked:
+		Yaw = LockedYaw
+		Tilt = 0.0
 	ApplyRotation()
 	BuildNodes()
 	Joins.Update(MovingIds)
@@ -151,6 +165,8 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	Node.position = At
 	add_child(Node)
 	PieceNodes[Piece.Id] = Node
+	if VeilKind >= 0 and Piece.Kind == VeilKind:
+		Veil.Cover(Node, false, false)
 	return Node
 
 
@@ -176,9 +192,31 @@ func SetBlockerZaps(On: bool) -> void:
 
 # MARK: Input
 
+## Whether a camera ray meets the cube's box.
+func HitsBoard(WorldOrigin: Vector3, WorldDirection: Vector3) -> bool:
+	if Model == null:
+		return false
+	var ToCube := global_transform.affine_inverse()
+	var Origin := ToCube * WorldOrigin
+	var Direction := ToCube.basis * WorldDirection
+	var Half := Vector3(Model.Width, Model.Height, Model.Depth) * Pitch / 2.0
+	var Near := -INF
+	var Far := INF
+	for Axis in 3:
+		if absf(Direction[Axis]) < 0.00001:
+			if absf(Origin[Axis]) > Half[Axis]:
+				return false
+			continue
+		var T1: float = (-Half[Axis] - Origin[Axis]) / Direction[Axis]
+		var T2: float = (Half[Axis] - Origin[Axis]) / Direction[Axis]
+		Near = maxf(Near, minf(T1, T2))
+		Far = minf(Far, maxf(T1, T2))
+	return Far >= 0.0 and Near <= Far
+
+
 ## A tap along a camera ray: the ray is taken into the cube's own space, where it meets the box's surface at the nearest face.
 func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	var ToCube := global_transform.affine_inverse()
 	var Origin := ToCube * WorldOrigin
@@ -212,7 +250,7 @@ func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
 
 
 func TapCell(Cell: Vector3i) -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	var Group := Model.GroupAt(Cell)
 	if Group.size() < CubeModel.MinimumGroupSize:
@@ -309,7 +347,7 @@ func OnInPlaceDone(Game: int) -> void:
 ## Attract Mode's move: a face chosen at random from the six - among those with a playable group touching them - then the largest
 ## such group on it (a random one among equals). Over time every side gets played, not just the one that has the biggest groups.
 func AttractStep() -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	var Groups := Model.PlayableGroups()
 	var Faces: Array[int] = []
@@ -341,10 +379,41 @@ func ApplyRotation() -> void:
 	basis = Basis(Vector3.UP, Yaw) * Basis(Vector3.RIGHT, Tilt) * Basis(Vector3.BACK, Roll)
 
 
+## Malicious: hides every piece of color `Kind` behind a tile (see `Veil`).
+func VeilOn(Kind: int) -> void:
+	VeilKind = Kind
+	for Node in PieceNodes.values():
+		if is_instance_valid(Node) and Node.get_meta("Kind") == Kind:
+			Veil.Cover(Node, false, true)
+
+
+func VeilOff() -> void:
+	VeilKind = -1
+	for Node in PieceNodes.values():
+		if is_instance_valid(Node):
+			Veil.Uncover(Node)
+
+
+## Malicious: turns the cube to `LockedYaw` and keeps it there (or lets the player turn it again).
+func SetTurnLocked(On: bool) -> void:
+	TurnLocked = On
+	if not On:
+		return
+	if is_inside_tree():
+		Recenter()
+	else:
+		Yaw = LockedYaw
+		Tilt = 0.0
+		Roll = 0.0
+		ApplyRotation()
+
+
 ## A drag turns the cube with the pointer, in screen space, whatever way it is turned: sideways about the world's vertical, up and down
 ## about the screen's horizontal (the camera looks along -Z, so that is the world's X axis) - so a piece on the face you see follows the
 ## mouse or finger. (Yaw, tilt and roll are then read back from the turned cube.)
 func RotateBy(DeltaYaw: float, DeltaTilt: float) -> void:
+	if TurnLocked:
+		return
 	var Turned := Basis(Vector3.UP, DeltaYaw) * Basis(Vector3.RIGHT, DeltaTilt) * basis
 	var Angles := Turned.orthonormalized().get_euler(EULER_ORDER_YXZ)
 	Tilt = Angles.x
@@ -374,11 +443,12 @@ func BestFace() -> int:
 ## Turns the cube so the face with the most pieces faces the camera, the short way round.
 func Recenter() -> void:
 	var Face := BestFace()
+	var Target: Vector2 = Vector2(LockedYaw, 0.0) if TurnLocked else FaceTurns[Face]
 	Yaw = wrapf(Yaw, -PI, PI)
 	Tilt = wrapf(Tilt, -PI, PI)
 	var Turn := create_tween()
 	Roll = wrapf(Roll, -PI, PI)
-	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, FaceTurns[Face], Roll), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, Target, Roll), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 
 func RecenterStep(Progress: float, StartYaw: float, StartTilt: float, Target: Vector2, StartRoll: float) -> void:
@@ -416,9 +486,9 @@ func SpinStep(Delta: float) -> void:
 
 
 func _process(Delta: float) -> void:
-	if AttractActive and AttractSpin and not AutoRotate and Model != null:
+	if AttractActive and AttractSpin and not AutoRotate and not TurnLocked and Model != null:
 		SpinStep(Delta)
-	if AutoRotate:
+	if AutoRotate and not TurnLocked:
 		AutoClock += Delta
 		Yaw = wrapf(Yaw + AutoYawRate * Delta, -PI, PI)
 		Tilt = sin(AutoClock * AutoTiltRate) * AutoTiltSwing
@@ -524,6 +594,10 @@ func FinishDrop() -> void:
 	if Model.HasPlayableGroup():
 		Busy = false
 		return
+	# In Attract Mode no group left to remove is the end of the game: the board stays as it is (busy) for `Main` to deal again.
+	if AttractActive:
+		NoPlayableGroups.emit()
+		return
 	Recover()
 
 
@@ -593,7 +667,7 @@ func OnShuffleLanded(Node: Node3D) -> void:
 
 ## The Shuffle button: moves the pieces already on the cube to other cells (never recoloring them where they sit).
 func ShuffleNow() -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	Busy = true
 	Recover()

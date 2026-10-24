@@ -204,6 +204,30 @@ func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 			Blockers[Col][Row] = false
 
 
+## Malicious: puts the Blockers somewhere else (the same number, at random, with the open cells still connected). A piece on a cell
+## that is now a Blocker is taken off the board; the cells the Blockers left are empty, so the next `Drop` fills them. Returns
+## {Old: [cells], New: [cells], Gone: [{Cell, Piece}]}.
+func RelocateBlockers() -> Dictionary:
+	var Old: Array[Vector2i] = []
+	for Col in Width:
+		for Row in Height:
+			if Blockers[Col][Row]:
+				Old.append(Vector2i(Col, Row))
+	PlaceBlockers()
+	var New: Array[Vector2i] = []
+	var Gone: Array = []
+	for Col in Width:
+		for Row in Height:
+			if not Blockers[Col][Row]:
+				continue
+			New.append(Vector2i(Col, Row))
+			var Piece := GetPiece(Col, Row)
+			if Piece != null:
+				Gone.append({"Cell": Vector2i(Col, Row), "Piece": Piece})
+				SetPiece(Col, Row, null)
+	return {"Old": Old, "New": New, "Gone": Gone}
+
+
 func OpenCellsConnected() -> bool:
 	var Start := Vector2i(-1, -1)
 	var OpenCount := 0

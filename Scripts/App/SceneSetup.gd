@@ -9,6 +9,8 @@ const FloorTiles := 40.0
 ## The environment and the sun, kept so Specular can change how they light the pieces.
 static var SceneEnvironment: Environment
 static var Sun: DirectionalLight3D
+## The sun's own turn in degrees (pitch, yaw, roll); the Malicious spinning light adds to its yaw.
+const SunDirection := Vector3(-40, 25, 0)
 static var ReflectionSky: Sky
 static var BackgroundKind: int = Backgrounds.Kinds.Gray
 static var SpecularOn: bool = false
@@ -37,7 +39,7 @@ static func BuildEnvironment(Parent: Node) -> Camera3D:
 	Parent.add_child(WorldEnv)
 	ReflectionSky = MakeReflectionSky()
 	Sun = DirectionalLight3D.new()
-	Sun.rotation_degrees = Vector3(-40, 25, 0)
+	Sun.rotation_degrees = SunDirection
 	Sun.light_energy = 1.1
 	Sun.shadow_enabled = true
 	Parent.add_child(Sun)

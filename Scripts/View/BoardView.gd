@@ -10,8 +10,12 @@ signal ScoreChanged(NewScore: int)
 ## A tap removed a group of `Size` pieces of color `Kind`.
 signal GroupRemoved(Kind: int, Size: int)
 signal BoardRebuilt
+## Attract Mode only: after a drop no group of three or more is left to remove.
+signal NoPlayableGroups
 
 const FallDuration := 0.35
+## How far the board is turned about the vertical while the Malicious "turn and lock" setting is on.
+const LockedYaw := PI / 4.0
 ## Auto Rotate: the turn about the vertical per second, and how far (and how fast) the board rocks to and fro.
 const AutoYawRate := 0.3
 const AutoTiltSwing := 0.55
@@ -58,6 +62,13 @@ var Joins := JoinSystem.new()
 var MovingIds: Dictionary = {}
 var AttractActive: bool = false
 var Busy: bool = false
+## Malicious (Settings): the board is held turned `LockedYaw` and cannot be turned; the Blockers move after every group; a veil
+## hides every piece of color `VeilKind` (-1 = none).
+var TurnLocked: bool = false
+var BlockersMove: bool = false
+var VeilKind: int = -1
+## Set by `Main` while the game is not being played (a level won or lost): taps, shuffles and Attract Mode moves do nothing.
+var InputLocked: bool = false
 var PieceNodes: Dictionary = {}
 var WaitingForVacate: bool = false
 var VacateClock: float = 0.0
@@ -97,6 +108,10 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers
 	# The specks that make Godot compile the hint's shaders now, just behind the middle of the board.
 	Hint.WarmUp(self, Vector3(0, 0, -0.6))
 	position = Vector3(0, Height / 2.0 + 0.5, 0)
+	VeilKind = -1
+	if TurnLocked:
+		Yaw = LockedYaw
+		Tilt = 0.0
 	ApplyRotation()
 	BuildNodes()
 	Joins.Update(MovingIds)
@@ -109,14 +124,73 @@ func BuildNodes() -> void:
 	for Col in Model.Width:
 		for Row in Model.Height:
 			if Model.IsBlocker(Col, Row):
-				var Light := BlockerLight.Create(Styles, CellPosition(Col, Row))
-				Light.ZapsEnabled = BlockerZapsEnabled
-				add_child(Light)
-				BlockerLights.append(Light)
+				AddBlockerLight(Col, Row, false)
 				continue
 			var Piece := Model.GetPiece(Col, Row)
 			if Piece != null:
 				AddPieceNode(Piece, CellPosition(Col, Row))
+
+
+## A Blocker's light in a cell; `Grow` makes it swell in from nothing (a Blocker that has just moved there).
+func AddBlockerLight(Col: int, Row: int, Grow: bool) -> void:
+	var Light := BlockerLight.Create(Styles, CellPosition(Col, Row))
+	Light.ZapsEnabled = BlockerZapsEnabled
+	add_child(Light)
+	BlockerLights.append(Light)
+	if Grow:
+		# Not quite nothing: a collider with a zero scale makes the physics engine complain.
+		Light.scale = Vector3.ONE * 0.01
+		Light.create_tween().tween_property(Light, "scale", Vector3.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Malicious: moves the Blockers (see `BoardModel.RelocateBlockers`): the pieces they land on vanish, the old lights go, new ones
+## swell in. The drop that follows fills the cells they left.
+func RelocateBlockers() -> void:
+	if Model.BlockerCount <= 0:
+		return
+	Hint.Clear()
+	var Result := Model.RelocateBlockers()
+	for Entry in Result["Gone"]:
+		var Piece: BoardModel.PieceData = Entry["Piece"]
+		var Node: Node3D = PieceNodes.get(Piece.Id)
+		if Node != null:
+			Joins.Strip(Node)
+			Node.queue_free()
+		PieceNodes.erase(Piece.Id)
+	for Light in BlockerLights:
+		if is_instance_valid(Light):
+			Light.queue_free()
+	BlockerLights.clear()
+	for Cell in Result["New"]:
+		AddBlockerLight(Cell.x, Cell.y, true)
+
+
+## Malicious: hides every piece of color `Kind` behind a tile (see `Veil`).
+func VeilOn(Kind: int) -> void:
+	VeilKind = Kind
+	for Node in PieceNodes.values():
+		if is_instance_valid(Node) and Node.get_meta("Kind") == Kind:
+			Veil.Cover(Node, true, true)
+
+
+func VeilOff() -> void:
+	VeilKind = -1
+	for Node in PieceNodes.values():
+		if is_instance_valid(Node):
+			Veil.Uncover(Node)
+
+
+## Malicious: turns the board to `LockedYaw` and keeps it there (or lets the player turn it again).
+func SetTurnLocked(On: bool) -> void:
+	TurnLocked = On
+	if not On:
+		return
+	if is_inside_tree():
+		Recenter()
+	else:
+		Yaw = LockedYaw
+		Tilt = 0.0
+		ApplyRotation()
 
 
 ## The board-space position of a cell's center; also correct for cells just off the board, where new pieces queue.
@@ -137,6 +211,8 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	Node.position = At
 	add_child(Node)
 	PieceNodes[Piece.Id] = Node
+	if VeilKind >= 0 and Piece.Kind == VeilKind:
+		Veil.Cover(Node, true, false)
 	return Node
 
 
@@ -167,9 +243,27 @@ func SetBlockShape(NewShape: int) -> void:
 
 # MARK: Input
 
+## Whether a camera ray meets the board (the rectangle of its cells, pieces or not).
+func HitsBoard(WorldOrigin: Vector3, WorldDirection: Vector3) -> bool:
+	if Model == null:
+		return false
+	var ToBoard := global_transform.affine_inverse()
+	var Origin := ToBoard * WorldOrigin
+	var Direction := ToBoard.basis * WorldDirection
+	if absf(Direction.z) < 0.0001:
+		return false
+	var T := -Origin.z / Direction.z
+	if T < 0.0:
+		return false
+	var Point := Origin + Direction * T
+	var Col := floori(Point.x / BlockStyles.Pitch + Model.Width / 2.0)
+	var Row := floori(Model.Height / 2.0 - Point.y / BlockStyles.Pitch)
+	return Col >= 0 and Col < Model.Width and Row >= 0 and Row < Model.Height
+
+
 ## A tap on the board along a camera ray.
 func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	# The ray in the board's own space, where the board is the plane z = 0 however it is turned.
 	var ToBoard := global_transform.affine_inverse()
@@ -190,7 +284,7 @@ func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
 
 
 func TapCell(Col: int, Row: int) -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	var Group := Model.GroupAt(Col, Row)
 	if Group.size() < BoardModel.MinimumGroupSize:
@@ -291,7 +385,7 @@ func OnInPlaceDone(Game: int) -> void:
 ## Attract Mode's move: the largest playable group; among groups of the same size, the one closest on average to the bottom
 ## (the bottom as the user sees it, so the same direction gravity pulls); among those still equal, one at random.
 func AttractStep() -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	var Groups := Model.PlayableGroups()
 	if Groups.is_empty():
@@ -343,6 +437,8 @@ func ApplyRotation() -> void:
 
 
 func RotateBy(DeltaYaw: float, DeltaTilt: float) -> void:
+	if TurnLocked:
+		return
 	Yaw = wrapf(Yaw + DeltaYaw, -PI, PI)
 	Tilt = wrapf(Tilt + DeltaTilt, -PI, PI)
 	ApplyRotation()
@@ -353,19 +449,19 @@ func Recenter() -> void:
 	Yaw = wrapf(Yaw, -PI, PI)
 	Tilt = wrapf(Tilt, -PI, PI)
 	var Turn := create_tween()
-	Turn.tween_method(RecenterStep.bind(Yaw, Tilt), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, LockedYaw if TurnLocked else 0.0), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 
-func RecenterStep(Progress: float, StartYaw: float, StartTilt: float) -> void:
-	Yaw = lerpf(StartYaw, 0.0, Progress)
+func RecenterStep(Progress: float, StartYaw: float, StartTilt: float, TargetYaw: float) -> void:
+	Yaw = StartYaw + angle_difference(StartYaw, TargetYaw) * Progress
 	Tilt = lerpf(StartTilt, 0.0, Progress)
 	ApplyRotation()
 
 
 func _process(Delta: float) -> void:
 	if Model != null:
-		Hint.Tick(Delta, not Busy and not AttractActive)
-	if AutoRotate:
+		Hint.Tick(Delta, not Busy and not AttractActive and not InputLocked)
+	if AutoRotate and not TurnLocked:
 		AutoClock += Delta
 		Yaw = wrapf(Yaw + AutoYawRate * Delta, -PI, PI)
 		Tilt = sin(AutoClock * AutoTiltRate) * AutoTiltSwing
@@ -396,6 +492,8 @@ func GravityFromUser() -> Vector2i:
 
 func StartDrop() -> void:
 	Flyers.ClearOriginBlockers()
+	if BlockersMove:
+		RelocateBlockers()
 	Model.GravityDir = GravityFromUser()
 	var Moves := Model.Drop()
 	if Moves.is_empty():
@@ -454,6 +552,10 @@ func OnMoveFinished(Id: int) -> void:
 func FinishDrop() -> void:
 	if Model.HasPlayableGroup():
 		Busy = false
+		return
+	# In Attract Mode no group left to remove is the end of the game: the board stays as it is (busy) for `Main` to deal again.
+	if AttractActive:
+		NoPlayableGroups.emit()
 		return
 	Recover()
 
@@ -525,7 +627,7 @@ func OnShuffleLanded(Node: Node3D) -> void:
 
 ## The Shuffle button: moves the pieces already on the board to other cells (never recoloring them where they sit).
 func ShuffleNow() -> void:
-	if Busy or Model == null:
+	if Busy or InputLocked or Model == null:
 		return
 	Busy = true
 	Recover()

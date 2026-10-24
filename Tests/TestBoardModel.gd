@@ -92,6 +92,30 @@ func TestDropAndRefill(BlockerCount: int, Seed: int, Direction: Vector2i = Vecto
 	Check(Model.Score > 0, "playing scores")
 
 
+## Malicious: Blockers move after a removal, and the next drop fills the cells they left.
+func TestRelocateBlockers() -> void:
+	for Seed in [5, 6, 7, 8]:
+		var Model := BoardModel.new(11, 11, 5, 3, Seed)
+		var Before := 0
+		for Col in Model.Width:
+			for Row in Model.Height:
+				if Model.IsBlocker(Col, Row):
+					Before += 1
+		var Pieces := CountPieces(Model)
+		var Result := Model.RelocateBlockers()
+		var After := 0
+		for Col in Model.Width:
+			for Row in Model.Height:
+				if Model.IsBlocker(Col, Row):
+					After += 1
+					Check(Model.GetPiece(Col, Row) == null, "no piece sits on a moved Blocker (seed %d)" % Seed)
+		Check(Before == 3 and After == 3 and Result["New"].size() == 3 and Result["Old"].size() == 3, "the same number of Blockers (seed %d)" % Seed)
+		Check(Model.OpenCellsConnected(), "the open cells stay connected after the Blockers move (seed %d)" % Seed)
+		Check(CountPieces(Model) == Pieces - Result["Gone"].size(), "only the pieces under new Blockers are lost (seed %d)" % Seed)
+		Model.Drop()
+		Check(EveryFillableCellFull(Model), "the drop after a move fills the gaps (seed %d)" % Seed)
+
+
 func TestBlockerColumn() -> void:
 	# A Blocker on row 0 of a column: nothing is ever created for that column.
 	var Model := BoardModel.new(4, 4, 4, 0, 3)
@@ -116,6 +140,7 @@ func _init() -> void:
 		for Seed in [44, 55]:
 			TestDropAndRefill(8, Seed, Direction)
 	TestBlockerColumn()
+	TestRelocateBlockers()
 	if Failures == 0:
 		print("ALL PASS")
 	else:

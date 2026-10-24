@@ -19,6 +19,9 @@ var Remaining: Dictionary = {}
 var GoalOrder: Array[int] = []
 ## True once the goal has been reached (in Zen play goes on after it).
 var GoalMet: bool = false
+## Set by `Main` while Attract Mode is on: turns are counted, but no goal, turn limit or time limit ends the game (Attract Mode is
+## over only when no group is left to remove).
+var Unlimited: bool = false
 ## Set by `Main` while the Settings window is open: the clock waits.
 var Paused: bool = false
 var ClockStarted: bool = false
@@ -54,6 +57,8 @@ func RecordRemoval(Kind: int, Size: int) -> void:
 	Turns += 1
 	if Remaining.has(Kind):
 		Remaining[Kind] = maxi(int(Remaining[Kind]) - Size, 0)
+	if Unlimited:
+		return
 	if AllDone():
 		GoalMet = true
 		if Mode != GameMode.Kinds.Zen:

@@ -27,6 +27,10 @@ var PresetPieces: Array[Dictionary] = []
 var PresetBlockers: Array[Vector3i] = []
 ## Special pieces placed before play, each {Cell: Vector3i, Special: String}. The kinds are still to be decided.
 var PresetSpecials: Array[Dictionary] = []
+## Set by the difficulty test (Settings > Level Difficulty): the mean number of turns a bot needed to reach the goal over its
+## trials (0 = never measured), and the fraction of those trials that reached it within `TurnCount` (-1 = never measured).
+var MeanTurns: float = 0.0
+var WinRate: float = -1.0
 ## Turns allowed in Turn mode (a turn is a tap that removes a group).
 var TurnCount: int = DefaultTurnCount
 ## Seconds allowed in Timed mode.

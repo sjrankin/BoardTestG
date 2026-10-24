@@ -134,7 +134,7 @@ func Launch(Kind: int, From: Vector3, BoardBasis: Basis) -> void:
 	var Pop := Vector3(randf_range(PopSideways.x, PopSideways.y), randf_range(PopUp.x, PopUp.y), randf_range(PopOut.x, PopOut.y))
 	Body.linear_velocity = BoardBasis * Pop * RemovalSpeed
 	Body.angular_velocity = Vector3(randf_range(-6.0, 6.0), randf_range(-6.0, 6.0), randf_range(-6.0, 6.0))
-	Flyers.append({"Body": Body, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Edge, "Core": CoreTint,
+	Flyers.append({"Body": Body, "Kind": Kind, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Edge, "Core": CoreTint,
 			"StopsSpinning": Styles.IsCubeLike()})
 
 
@@ -193,7 +193,7 @@ func MiniMe(Kind: int, From: Vector3, Count: int) -> void:
 			Direction = Vector3.UP
 		Body.linear_velocity = Direction.normalized() * randf_range(MiniMeSpeed.x, MiniMeSpeed.y) * RemovalSpeed
 		Body.angular_velocity = Vector3(randf_range(-14.0, 14.0), randf_range(-14.0, 14.0), randf_range(-14.0, 14.0))
-		Flyers.append({"Body": Body, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Edge, "Core": CoreTint,
+		Flyers.append({"Body": Body, "Kind": Kind, "Home": From, "Age": 0.0, "Fading": false, "Tint": Tint, "Edge": Edge, "Core": CoreTint,
 				"StopsSpinning": false})
 
 
@@ -271,9 +271,23 @@ func Explode(Kind: int, From: Vector3, Count: int) -> void:
 				"Core": null, "StopsSpinning": false})
 
 
-## Shatters a whole board at once: `Entries` is [{Kind, Position}] (world space), one per piece. The shards share `ShardBudget`
-## between the pieces (fewer each on a big board), so the physics never has more than `MaxFragments` to move.
+## Shatters a whole board at once: `Entries` is [{Kind, Position}] (world space), one per piece. Pieces that were already removed
+## and are still flying about (or fading) are shattered too, where they are, and disappear. The shards share `ShardBudget`
+## between all of them (fewer each on a big board), so the physics never has more than `MaxFragments` to move.
 func ExplodeAll(Entries: Array[Dictionary]) -> void:
+	for Index in range(Flyers.size() - 1, -1, -1):
+		var Flyer := Flyers[Index]
+		# Shards have no "Kind": they are already broken.
+		if not Flyer.has("Kind") or not is_instance_valid(Flyer["Body"]):
+			continue
+		var Body: RigidBody3D = Flyer["Body"]
+		Entries.append({"Kind": Flyer["Kind"], "Position": Body.global_position})
+		# Hidden and still, not freed: a fade already under way will free it, and `Reset` frees the rest.
+		Body.visible = false
+		Body.freeze = true
+		Body.collision_layer = 0
+		Body.collision_mask = 0
+		Flyers.remove_at(Index)
 	var Each := clampi(ShardBudget / maxi(Entries.size(), 1), 1, MaxShardsPerPiece)
 	for Entry in Entries:
 		Explode(Entry["Kind"], Entry["Position"], Each)

@@ -16,6 +16,9 @@ const TargetRenderHeight := 2400.0
 const MaxSuperSampling := 2.0
 ## A press that moves more than this many pixels is a turn of the board, not a tap.
 const DragThreshold := 6.0
+## Two taps this close in time (milliseconds) and place (pixels) are a double tap.
+const DoubleTapTime := 400
+const DoubleTapDistance := 40.0
 const DragRadiansPerPixel := 0.008
 const MinCameraDistance := 4.0
 const MaxCameraDistance := 60.0
@@ -33,18 +36,41 @@ var Blockers: int = DefaultBlockers
 var Bar: ControlBar
 ## The game in progress: play mode, level, turns and time.
 var Session := GameSession.new()
+var Difficulty := DifficultyRun.new()
 var PlayMode: GameMode.Kinds = GameMode.Default
 ## Which of `Levels.All()` is being played; -1 plays the board set in Settings with the default level. Every launch starts on
 ## Level 1 (on the 2D board, as levels are 2D).
 var LevelIndex: int = 0
 ## Bumped by every new game, so a win or loss waiting to carry on (`WinSequence`) knows its game is gone.
 var SequenceId: int = 0
+## The level the Play button starts: Level 1 at first, then the level the player was on when Attract Mode came on (a failed
+## level they declined to replay, or the one they were playing when they turned it on).
+var ResumeLevel: int = 0
+## Attract Mode: the game just ended (no group left to remove) and the next one has not started.
+var AttractGameOver: bool = false
+## The Settings > Malicious switches (see `ControlBar.MaliciousToggled`) and the GameSettings key each is saved under.
+const MaliciousKeys: Array[String] = ["MaliciousLight", "MaliciousBlockers", "MaliciousVeil", "MaliciousTurn"]
+## The spinning light turns once round in this many seconds; the veil comes down every `VeilEvery` seconds and stays `VeilFor`.
+const LightPeriod := 30.0
+const VeilEvery := 20.0
+const VeilFor := 10.0
+var Malicious: Array[bool] = [false, false, false, false]
+var LightAngle: float = 0.0
+## The veil's clock (seconds of play) and when it next changes; whether it is down now.
+var VeilClock: float = 0.0
+var VeilNext: float = VeilEvery
+var VeilShown: bool = false
+## `--level=N` starts straight on that level instead of in Attract Mode (for captures).
+var SkipTitle: bool = false
 var CameraNode: Camera3D
 var CameraDistance: float = 0.0
 var AttractClock: float = 0.0
 var PressPosition: Vector2 = Vector2.ZERO
 var Pressed: bool = false
 var Dragging: bool = false
+## The last tap that missed the board: when it happened (`Time.get_ticks_msec`, 0 = none) and where.
+var LastMissTime: int = 0
+var LastMissPosition: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
@@ -64,6 +90,7 @@ func _ready() -> void:
 	Board3D.Styles = Board2D.Styles
 	for Board in [Board2D, Board3D]:
 		Board.BoardRebuilt.connect(FrameCamera)
+		Board.NoPlayableGroups.connect(OnNoPlayableGroups)
 		Board.GroupRemoved.connect(Session.RecordRemoval)
 	add_child(Session)
 	PlayMode = clampi(int(GameSettings.Load("PlayMode", GameMode.Default)), 0, GameMode.Names.size() - 1) as GameMode.Kinds
@@ -83,6 +110,7 @@ func _ready() -> void:
 			# Plays that level (1 to 10) on the 2D board.
 			LevelIndex = clampi(int(Argument.trim_prefix("--level=")) - 1, -1, Levels.Count() - 1)
 			Is3D = LevelIndex < 0 and Is3D
+			SkipTitle = true
 		elif Argument.begins_with("--dims="):
 			var Parts := Argument.trim_prefix("--dims=").split("x")
 			if Parts.size() == 3:
@@ -106,7 +134,31 @@ func _ready() -> void:
 	Bar.LevelPicker.selected = LevelIndex + 1
 	Bar.GameModeSelected.connect(OnGameModeSelected)
 	Bar.LevelSelected.connect(OnLevelSelected)
+	# The game starts in Attract Mode (on the Settings board) with a Play button; Play begins Level 1.
+	ResumeLevel = maxi(LevelIndex, 0)
+	if not SkipTitle:
+		LevelIndex = -1
+		Bar.LevelPicker.selected = 0
+		Bar.AttractCheck.button_pressed = true
 	Bar.AttractCheck.toggled.connect(OnAttractToggled)
+	for Index in MaliciousKeys.size():
+		Malicious[Index] = bool(GameSettings.Load(MaliciousKeys[Index], false))
+		Bar.MaliciousChecks[Index].button_pressed = Malicious[Index]
+	Bar.MaliciousToggled.connect(OnMaliciousToggled)
+	Bar.PlayPressed.connect(func() -> void: OnLevelSelected(ResumeLevel + 1))
+	Bar.ReplayAnswered.connect(OnReplayAnswered)
+	add_child(Difficulty)
+	Bar.DifficultyStartPressed.connect(func() -> void:
+		Bar.TestOverlay.Begin()
+		Difficulty.Start())
+	Difficulty.Progress.connect(Bar.TestOverlay.ShowProgress)
+	Difficulty.LevelDone.connect(Bar.TestOverlay.ShowResult)
+	Difficulty.Finished.connect(Bar.TestOverlay.Finish)
+	Bar.TestOverlay.ClosePressed.connect(func() -> void:
+		if Difficulty.Running:
+			Difficulty.Cancelled = true
+		else:
+			Bar.TestOverlay.visible = false)
 	Session.StateChanged.connect(OnSessionState)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
@@ -138,6 +190,9 @@ func _ready() -> void:
 	View = Board3D if Is3D else Board2D
 	add_child(View)
 	View.SetBlockShape(ShapeIndex)
+	for Index in MaliciousKeys.size():
+		if Malicious[Index]:
+			ApplyMalicious(Index)
 	ShowBoardType()
 	StartGame()
 
@@ -205,6 +260,10 @@ func Both(Name: String, Value: Variant) -> void:
 ## Starts a new game on the board being played, with its own size.
 func StartGame() -> void:
 	SequenceId += 1
+	VeilShown = false
+	VeilClock = 0.0
+	VeilNext = VeilEvery
+	Bar.ShowReplayPrompt(false)
 	Bar.ClearGoals()
 	if LevelIndex >= 0 and not Is3D:
 		var Level := Levels.All()[LevelIndex]
@@ -255,16 +314,89 @@ func OnGameModeSelected(Index: int) -> void:
 ## Plays level `Index` (0 is "no level": the Settings board). Levels are 2D, so this switches to the 2D board.
 ## Attract Mode plays the board the Settings window shows (its size, colors and Blockers; the block shape is already shared),
 ## not a level's: turning it on starts a new game with those values.
+func OnMaliciousToggled(Index: int, On: bool) -> void:
+	Malicious[Index] = On
+	GameSettings.Save(MaliciousKeys[Index], On)
+	ApplyMalicious(Index)
+
+
+func ApplyMalicious(Index: int) -> void:
+	var On := Malicious[Index]
+	match Index:
+		0:
+			if not On:
+				LightAngle = 0.0
+				SceneSetup.Sun.rotation_degrees = SceneSetup.SunDirection
+		1:
+			Board2D.BlockersMove = On
+		2:
+			if not On and VeilShown:
+				View.VeilOff()
+				VeilShown = false
+			VeilClock = 0.0
+			VeilNext = VeilEvery
+		3:
+			Board2D.SetTurnLocked(On)
+			Board3D.SetTurnLocked(On)
+			if On:
+				Bar.AutoRotateCheck.button_pressed = false
+			Bar.AutoRotateCheck.disabled = On
+
+
+## The veil comes down over every piece of one color: a color the goal still needs, if there is one, else any on the board.
+func ShowVeil() -> void:
+	var Kinds: Array[int] = Session.WantedKinds()
+	if Kinds.is_empty():
+		for Node in View.PieceNodes.values():
+			if is_instance_valid(Node) and not Kinds.has(Node.get_meta("Kind")):
+				Kinds.append(Node.get_meta("Kind"))
+	if Kinds.is_empty():
+		return
+	View.VeilOn(Kinds.pick_random())
+	VeilShown = true
+
+
+func HideVeil() -> void:
+	View.VeilOff()
+	VeilShown = false
+
+
+## Malicious, once a frame: the spinning light and the veil's timing.
+func MaliciousStep(Delta: float) -> void:
+	if Malicious[0]:
+		LightAngle = fmod(LightAngle + TAU / LightPeriod * Delta, TAU)
+		SceneSetup.Sun.rotation = Vector3(deg_to_rad(SceneSetup.SunDirection.x), deg_to_rad(SceneSetup.SunDirection.y) + LightAngle, 0.0)
+	if Malicious[2] and Session.CanPlay() and not Bar.Overlay.visible and not Bar.TestOverlay.visible and not AttractGameOver:
+		VeilClock += Delta
+		if VeilClock >= VeilNext:
+			if VeilShown:
+				HideVeil()
+			else:
+				ShowVeil()
+			VeilNext += VeilFor if VeilShown else VeilEvery - VeilFor
+
+
 func OnAttractToggled(On: bool) -> void:
 	if On:
+		if LevelIndex >= 0:
+			ResumeLevel = LevelIndex
 		OnBoardSet(int(Bar.WidthField.value), int(Bar.HeightField.value), int(Bar.DepthField.value), int(Bar.ColorsField.value), int(Bar.BlockersField.value))
 
 
 func OnSessionState(NewState: GameSession.States) -> void:
 	if NewState == GameSession.States.Won:
 		WinSequence()
-	elif NewState == GameSession.States.Lost and Bar.AttractCheck.button_pressed:
-		RestartAfterLoss()
+	elif NewState == GameSession.States.Lost:
+		Bar.ShowReplayPrompt(true)
+
+
+## "Replay? Yes" plays the same level again; "No" goes back to Attract Mode (with its Play button), which comes back to this
+## level.
+func OnReplayAnswered(Yes: bool) -> void:
+	if Yes:
+		StartGame()
+	else:
+		Bar.AttractCheck.button_pressed = true
 
 
 ## Whether nothing is left flying: no removal effect playing and no shards or pieces in the air. (Not `Busy`: that stays set on
@@ -300,11 +432,22 @@ func WinSequence() -> void:
 	StartGame()
 
 
-## Attract Mode only: a lost game starts over after a pause, so it keeps playing.
-func RestartAfterLoss() -> void:
+## Attract Mode's game: it goes on while any group can be removed, and is over as soon as none can. "Game over" shows, and after
+## 2 seconds every piece explodes; when the shards have settled a new game fills the board with new pieces.
+func OnNoPlayableGroups() -> void:
+	if not Bar.AttractCheck.button_pressed:
+		return
 	var Id := SequenceId
+	AttractGameOver = true
 	await get_tree().create_timer(2.0).timeout
-	if Id == SequenceId and Bar.AttractCheck.button_pressed:
+	if Id != SequenceId or not Bar.AttractCheck.button_pressed:
+		AttractGameOver = false
+		return
+	View.ExplodeAll()
+	await get_tree().process_frame
+	var Settled := await WaitForBoard(Id, 12.0, ShardsSettled)
+	AttractGameOver = false
+	if Settled and Bar.AttractCheck.button_pressed:
 		StartGame()
 
 
@@ -425,7 +568,7 @@ func _unhandled_input(Event: InputEvent) -> void:
 			else:
 				# A press and release without much movement in between is a tap; otherwise it was a turn.
 				if Pressed and not Dragging:
-					View.HandleTapRay(CameraNode.project_ray_origin(Event.position), CameraNode.project_ray_normal(Event.position))
+					OnTap(Event.position)
 				Pressed = false
 				Dragging = false
 		elif Event.pressed and Event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -442,16 +585,41 @@ func _unhandled_input(Event: InputEvent) -> void:
 			View.RotateBy(Event.relative.x * DragRadiansPerPixel, Event.relative.y * DragRadiansPerPixel)
 
 
+## A press and release without a turn in between. A tap on the board plays it (the board ignores it while the game is locked);
+## two quick taps in the view but off the board recenter the board, as the Recenter button does.
+func OnTap(At: Vector2) -> void:
+	var Origin := CameraNode.project_ray_origin(At)
+	var Direction := CameraNode.project_ray_normal(At)
+	if View.HitsBoard(Origin, Direction):
+		LastMissTime = 0
+		View.HandleTapRay(Origin, Direction)
+		return
+	var Now := Time.get_ticks_msec()
+	if LastMissTime > 0 and Now - LastMissTime <= DoubleTapTime and At.distance_to(LastMissPosition) <= DoubleTapDistance:
+		LastMissTime = 0
+		OnRecenterPressed()
+	else:
+		LastMissTime = Now
+		LastMissPosition = At
+
+
 func _process(Delta: float) -> void:
-	Session.Paused = Bar.Overlay.visible
+	MaliciousStep(Delta)
+	Session.Paused = Bar.Overlay.visible or Bar.TestOverlay.visible
+	Session.Unlimited = Bar.AttractCheck.button_pressed
+	Board2D.InputLocked = not Session.CanPlay()
+	Board3D.InputLocked = Board2D.InputLocked
+	# In Attract Mode (the title state) the game's goal and clock are hidden and the Play button is shown.
+	Bar.PlayButton.visible = Bar.AttractCheck.button_pressed and not Bar.Overlay.visible and not Bar.TestOverlay.visible
+	Bar.Readouts.visible = not Bar.AttractCheck.button_pressed
 	Bar.SetLevel("Level %d" % (LevelIndex + 1) if LevelIndex >= 0 and not Is3D else "")
 	Bar.SetGoals(Session.Remaining, Session.GoalOrder, BlockStyles.Palette)
 	Board2D.Hint.WantedKinds = Session.WantedKinds()
-	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), Session.StatusText())
+	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), "Game over" if AttractGameOver else Session.StatusText())
 	View.UserDown = -CameraNode.global_basis.y
 	View.AttractActive = Bar.AttractCheck.button_pressed
 	Bar.SetFps(int(Engine.get_frames_per_second()))
-	if Bar.AttractCheck.button_pressed and not View.Busy and Session.CanPlay():
+	if Bar.AttractCheck.button_pressed and not View.Busy and Session.CanPlay() and not Bar.TestOverlay.visible:
 		AttractClock += Delta
 		if AttractClock >= AttractDelay:
 			AttractClock = 0.0

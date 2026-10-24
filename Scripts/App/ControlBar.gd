@@ -9,6 +9,14 @@ signal ShapeSelected(Index: int)
 signal GameModeSelected(Index: int)
 ## A level picked in Settings > Game: 0 is none, 1 is `Levels.All()[0]`, and so on.
 signal LevelSelected(Index: int)
+## The answer to the "Replay?" question shown after a failed level.
+signal ReplayAnswered(Yes: bool)
+## The "Play" button shown while Attract Mode is on.
+signal PlayPressed
+## The "Start" button of Settings > Level Difficulty.
+signal DifficultyStartPressed
+## One of the four Settings > Malicious switches (0 spinning light, 1 moving Blockers, 2 veil, 3 turned and locked board).
+signal MaliciousToggled(Index: int, On: bool)
 signal ShufflePressed
 signal RecenterPressed
 signal AutoRotateToggled(On: bool)
@@ -56,6 +64,11 @@ var GoalBadges: Dictionary = {}
 var ClockLabel: Label
 var StatusLabel: Label
 var LevelLabel: Label
+var ReplayPrompt: Control
+var PlayButton: Button
+## The screen shown while the difficulty test runs.
+var TestOverlay: DifficultyOverlay
+var MaliciousChecks: Array[Button] = []
 var GameModePicker: OptionButton
 var LevelPicker: OptionButton
 var FpsLabel: Label
@@ -81,23 +94,22 @@ var Overlay: Control
 func Setup(Width: int, Height: int, Colors: int, Blockers: int, ShapeIndex: int, RemovalSpeed: float, Lightning: bool, BlockerZaps: bool, Specular: bool, FrameRate: int, RemovalEffect: int, ShapeNames: Array[String]) -> void:
 	BuildReadouts()
 	BuildGear()
+	BuildReplayPrompt()
+	BuildPlayButton()
+	TestOverlay = DifficultyOverlay.new()
 	if OS.get_name() == "macOS":
 		BuildCamera()
 	BuildSettingsWindow(Width, Height, Colors, Blockers, ShapeIndex, RemovalSpeed, Lightning, BlockerZaps, Specular, FrameRate, RemovalEffect, ShapeNames)
 	get_window().size_changed.connect(PlaceInsets)
+	add_child(TestOverlay)
 	PlaceInsets()
 
 
-## Shows a badge for each goal color with pieces still to remove (`Remaining`: Kind -> count, `Order`: the kinds in the level's
-## order, `Palette`: Kind -> color); a color that is done loses its badge.
+## Shows a badge for each goal color (`Remaining`: Kind -> pieces still to remove, `Order`: the kinds in the level's order,
+## `Palette`: Kind -> color); a color that is done shows a checkmark in place of its number.
 func SetGoals(Remaining: Dictionary, Order: Array[int], Palette: Array[Color]) -> void:
 	for Kind in Order:
 		var Left := int(Remaining[Kind])
-		if Left <= 0:
-			if GoalBadges.has(Kind):
-				(GoalBadges[Kind] as Control).queue_free()
-				GoalBadges.erase(Kind)
-			continue
 		if not GoalBadges.has(Kind):
 			var Badge := ColorGoalBadge.new()
 			Badge.Tint = Palette[Kind]
@@ -146,12 +158,97 @@ func BuildReadouts() -> void:
 	FpsLabel = Label.new()
 	FpsLabel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	FpsLabel.add_theme_font_size_override("font_size", 24)
+	# An opaque plate, so the number can be read over any background.
+	var Plate := StyleBoxFlat.new()
+	Plate.bg_color = Color(0.1, 0.1, 0.13, 1.0)
+	Plate.set_corner_radius_all(8)
+	Plate.content_margin_left = 10.0
+	Plate.content_margin_right = 10.0
+	Plate.content_margin_top = 4.0
+	Plate.content_margin_bottom = 4.0
+	FpsLabel.add_theme_stylebox_override("normal", Plate)
 	FpsLabel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	FpsLabel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	FpsLabel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	add_child(FpsLabel)
 	LevelLabel = AddTopCenterLabel(44, 10.0)
 	StatusLabel = AddTopCenterLabel(56, 70.0)
+
+
+## "Replay?  Yes  No", near the bottom of the window; hidden until a level is failed (`ShowReplayPrompt`).
+func BuildReplayPrompt() -> void:
+	# A strip across the bottom of the window with the panel centered in it; the strip lets clicks through, the panel does not.
+	ReplayPrompt = CenterContainer.new()
+	ReplayPrompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ReplayPrompt.visible = false
+	add_child(ReplayPrompt)
+	ReplayPrompt.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	ReplayPrompt.offset_top = -170.0
+	ReplayPrompt.offset_bottom = -50.0
+	var Panel := PanelContainer.new()
+	var Back := StyleBoxFlat.new()
+	Back.bg_color = Color(0.13, 0.14, 0.17, 0.92)
+	Back.set_corner_radius_all(16)
+	Back.set_content_margin_all(16)
+	Panel.add_theme_stylebox_override("panel", Back)
+	var Row := HBoxContainer.new()
+	Row.add_theme_constant_override("separation", 20)
+	var Question := Label.new()
+	Question.text = "Replay?"
+	Question.add_theme_font_size_override("font_size", 36)
+	Question.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	Row.add_child(Question)
+	for Answer in [true, false]:
+		var Choice := Button.new()
+		Choice.text = "Yes" if Answer else "No"
+		Choice.custom_minimum_size = Vector2(130, 60)
+		Choice.add_theme_font_size_override("font_size", 30)
+		var Face := StyleBoxFlat.new()
+		Face.bg_color = Color(0.2, 0.5, 0.9) if Answer else Color(0.3, 0.32, 0.38)
+		Face.set_corner_radius_all(10)
+		Choice.add_theme_stylebox_override("normal", Face)
+		Choice.add_theme_stylebox_override("hover", Face)
+		Choice.add_theme_stylebox_override("pressed", Face)
+		Choice.pressed.connect(func() -> void:
+			ReplayPrompt.visible = false
+			ReplayAnswered.emit(Answer))
+		Row.add_child(Choice)
+	Panel.add_child(Row)
+	ReplayPrompt.add_child(Panel)
+
+
+## "Play", near the bottom of the window: shown while Attract Mode is on (the game's title state), `Main` decides when.
+func BuildPlayButton() -> void:
+	PlayButton = Button.new()
+	PlayButton.text = "Play"
+	PlayButton.visible = false
+	PlayButton.add_theme_font_size_override("font_size", 48)
+	PlayButton.custom_minimum_size = Vector2(240, 90)
+	var Face := StyleBoxFlat.new()
+	Face.bg_color = Color(0.2, 0.5, 0.9)
+	Face.set_corner_radius_all(16)
+	for Look in ["normal", "hover", "pressed", "focus"]:
+		PlayButton.add_theme_stylebox_override(Look, Face)
+	PlayButton.pressed.connect(func() -> void: PlayPressed.emit())
+	add_child(PlayButton)
+	PlayButton.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE)
+	PlayButton.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	PlayButton.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	PlayButton.offset_bottom = -60.0
+	PlayButton.offset_top = -150.0
+	PlayButton.offset_left = -120.0
+	PlayButton.offset_right = 120.0
+
+
+## While the "Replay?" question is up nothing else may be done: the Settings gear (and with it Shuffle, Attract Mode, the level
+## and board pickers) is dimmed and does not answer until the question is.
+func ShowReplayPrompt(On: bool) -> void:
+	ReplayPrompt.visible = On
+	Gear.disabled = On
+	Gear.modulate.a = 0.35 if On else 1.0
+	if Camera != null:
+		Camera.disabled = On
+		Camera.modulate.a = 0.35 if On else 1.0
 
 
 ## A label across the top of the window with its text centered, `Top` pixels from the top.
@@ -304,6 +401,8 @@ func BuildSettingsWindow(Width: int, Height: int, Colors: int, Blockers: int, Sh
 	BuildSceneSection(AddSection(Sections, "Scene"))
 	BuildEffectsSection(AddSection(Sections, "Effects"), Lightning, BlockerZaps, RemovalSpeed, RemovalEffect)
 	BuildPerformanceSection(AddSection(Sections, "Performance"), FrameRate)
+	BuildMaliciousSection(AddSection(Sections, "Malicious"))
+	BuildDifficultySection(AddSection(Sections, "Level Difficulty"))
 	get_window().size_changed.connect(FitSettingsWindow.bind(Dialog, Scroller))
 	FitSettingsWindow(Dialog, Scroller)
 
@@ -432,6 +531,27 @@ func BuildPerformanceSection(Section: VBoxContainer, FrameRate: int) -> void:
 	AddRow(Section, "Frame Rate Limit", FrameRatePicker)
 	var Note := Label.new()
 	Note.text = "A lower limit keeps a phone or tablet cooler and saves battery."
+	Note.add_theme_font_size_override("font_size", 18)
+	Note.modulate = Color(1, 1, 1, 0.6)
+	Note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	Section.add_child(Note)
+
+
+## Switches that make the game harder for the player.
+func BuildMaliciousSection(Section: VBoxContainer) -> void:
+	var Titles: Array[String] = ["Spin the light around the board (30 s a turn)", "Move the Blockers after every group (2D)", "Hide one color behind a veil (every 20 s, for 10 s)", "Turn the board 45\u00B0 and lock it"]
+	for Index in Titles.size():
+		var Check := AddCheckRow(Section, Titles[Index], false)
+		Check.toggled.connect(func(On: bool) -> void: MaliciousToggled.emit(Index, On))
+		MaliciousChecks.append(Check)
+
+
+func BuildDifficultySection(Section: VBoxContainer) -> void:
+	AddButtonRow(Section, "Test every level 30 times", "Start", func() -> void:
+		CloseSettings()
+		DifficultyStartPressed.emit())
+	var Note := Label.new()
+	Note.text = "A bot plays each level, always taking the largest group of a color the goal needs. Its mean turns are saved in the level table and set each level's difficulty (its turns against the turns the level allows)."
 	Note.add_theme_font_size_override("font_size", 18)
 	Note.modulate = Color(1, 1, 1, 0.6)
 	Note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

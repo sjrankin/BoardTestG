@@ -104,7 +104,9 @@ func _init() -> void:
 			Total += Goal.y
 			Check(Goal.x >= 0 and Goal.x < L.ColorCount and not Seen.has(Goal.x) and Goal.y > 0, Tag + "goal color is one of the board's, once")
 			Seen[Goal.x] = true
-		Check(L.Difficulty == Index + 1 and L.ShapeType == LevelDefinition.ShapeTypes.TwoD, Tag + "difficulty and shape")
+		# A level starts at difficulty = its number; once the difficulty test has run (results saved on this machine) it is the measured one.
+		var Expected := Index + 1 if L.MeanTurns <= 0.0 else Levels.DifficultyFor(L.MeanTurns, L.TurnCount)
+		Check(L.Difficulty == Expected and L.ShapeType == LevelDefinition.ShapeTypes.TwoD, Tag + "difficulty and shape")
 		Check(L.Dimensions.x >= 3 and L.Dimensions.x <= 15 and L.Dimensions.y >= 3 and L.Dimensions.y <= 13, Tag + "size in range")
 		Check(L.ColorCount >= 4 and L.ColorCount <= 6 and L.ColorGoals.size() >= 1 and L.ColorGoals.size() <= L.ColorCount, Tag + "colors")
 		Check(L.PresetBlockers.size() <= Cells / 40, Tag + "at most one Blocker per 40 cells")
@@ -120,7 +122,15 @@ func _init() -> void:
 		print("L", L.Difficulty, " ", L.Dimensions.x, "x", L.Dimensions.y, " colors ", L.ColorCount, " goals ", L.ColorGoals, " turns ", L.TurnCount, " time ", L.TimeCount, " blockers ", L.PresetBlockers.size())
 	Check(Levels.TurnsFor(45, 30) > Levels.TurnsFor(45, 150), "fewer pieces give more turns")
 	Check(Levels.TurnsFor(90, 50) > Levels.TurnsFor(45, 50), "more pieces to remove give more turns")
-	Check(Levels.All()[0].PresetBlockers == Levels.Build(1, Vector2i(7, 7), 4, [Vector2i(0, 12), Vector2i(1, 9)]).PresetBlockers, "levels are repeatable")
+	Check(Levels.All()[0].PresetBlockers == Levels.Build(1, Vector2i(7, 7), 4, [Vector2i(2, 12), Vector2i(3, 9)]).PresetBlockers, "levels are repeatable")
+
+	# The difficulty test: the bot finishes every level, and difficulty rises with the turns it needs.
+	for Index in All.size():
+		var Turns := DifficultyRun.PlayOnce(All[Index])
+		Check(Turns > 0 and Turns < DifficultyRun.TurnCap, "level %d: the bot reaches the goal (%d turns)" % [Index + 1, Turns])
+	Check(Levels.DifficultyFor(1.0, 20) == 1 and Levels.DifficultyFor(40.0, 20) == 10 and Levels.DifficultyFor(90.0, 20) == 10, "difficulty is clamped to 1 to 10")
+	Check(Levels.DifficultyFor(10.0, 20) < Levels.DifficultyFor(15.0, 20) and Levels.DifficultyFor(15.0, 20) < Levels.DifficultyFor(19.0, 20), "more turns needed means harder")
+	Check(Levels.DifficultyFor(15.0, 20) > Levels.DifficultyFor(15.0, 40), "the same turns against more allowed turns is easier")
 
 	if Failures == 0:
 		print("ALL PASS")
