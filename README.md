@@ -157,6 +157,12 @@ Mini Me involves creating several smaller versions of the piece to be removed, t
 Explode fractures the pieces and flings the result across the board.\
 <img src="Images/ExplodingRemoval.gif" alt="Animation of removal of a piece by shattering it." width="400">
 
+## Platform Independence
+Additionally, Godot provides ways of exporting projects for other platforms. 
+
+Hand-held video of BoardTestG running on the Windows desktop.\
+<img src="Images/OnWindows.gif" alt="Animation of BoardTestG running on Windows." width="400">
+
 ### Game User Interface
 I used a minimal user interface for the game. It is mostly debug-controls and ways to test game play. A final UI will consist of controls on the main page (e.g., play, reset, and the like). See "How to Play" above for the current controls.
 
