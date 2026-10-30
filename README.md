@@ -160,8 +160,11 @@ Explode fractures the pieces and flings the result across the board.\
 ## Platform Independence
 Additionally, Godot provides ways of exporting projects for other platforms. 
 
-Video of BoardTestG running on the Windows desktop.\
+Animation of BoardTestG running on the Windows desktop.\
 <img src="Images/WindowsBoardTestGr.gif" alt="Animation of BoardTestG running on Windows." width="400">
+
+Aniamtion of BoardTestG running on four different devices - an iPhone (in a red case), a Pixel phone (in a black case), Windows (large monitor), and a MacBook Air (laptop).
+<img src="Images/BoardTestGMultiDevice.gif" alt="Animation of BoardTestG running on multiple devices." width="400">
 
 ### Game User Interface
 I used a minimal user interface for the game. It is mostly debug-controls and ways to test game play. A final UI will consist of controls on the main page (e.g., play, reset, and the like). See "How to Play" above for the current controls.
