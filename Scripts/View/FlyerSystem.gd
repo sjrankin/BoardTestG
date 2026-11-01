@@ -28,9 +28,15 @@ const MiniMeSpeed := Vector2(9.0, 18.0) * 1.0724
 const LaunchClearTime := 0.25
 ## A flying piece has left its cell once it is a full block away, or after this long regardless.
 const VacateTimeout := 2.0
+## An Explode burst is thousands of tiny shards, some of which bounce around inside their cell for a second or more (measured:
+## the refill waited 0.4 to 2.0 s, the full timeout when any shard lingered). They are too small to matter to a piece dropping in,
+## so the refill waits at most this long (on the pieces' own clock) after an Explode.
+const ExplodeVacateTimeout := 0.35
 const FadeDuration := 0.5
 const MaxAge := 4.0
 const RestAge := 1.2
+## (An Explode shard typically lasts `RestAge` + `FadeDuration` = 1.7 s at Removal Speed 1: measured on 590 shards, 90% start fading at
+## `RestAge`, the median exactly then, the last at 4.0 s. The puff of smoke, `SmokeBurst.DissipationTime`, is kept a little longer.)
 ## Extra gravity on a removed piece, on top of the Removal Speed scaling: a piece falls hard, rather than floating.
 const RemovalGravity := 2.5
 ## A cube-like flying piece stops spinning (heavy damping) the moment it touches something.
@@ -336,6 +342,7 @@ func StartFade(Flyer: Dictionary) -> void:
 	# piece - so the shine (the sun's highlight and the glossy coat, from Specular) is faded out first, in the first 40% of the fade.
 	FadeTween.tween_property(Body, "metallic_specular", 0.0, FadeDuration * 0.4)
 	FadeTween.tween_property(Body, "roughness", 1.0, FadeDuration * 0.4)
+	FadeTween.tween_property(Body, "metallic", 0.0, FadeDuration * 0.4)
 	if Body.clearcoat_enabled:
 		FadeTween.tween_property(Body, "clearcoat", 0.0, FadeDuration * 0.4)
 		FadeTween.tween_property(Body, "clearcoat_roughness", 1.0, FadeDuration * 0.4)

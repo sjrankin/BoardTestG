@@ -55,10 +55,10 @@ func MaterialFor(Shape: int, Kind: int) -> Material:
 			Shape = BlockStyles.Shapes.Sphere
 		BlockStyles.Shapes.JoinedCylinders:
 			Shape = BlockStyles.Shapes.Cylinder
-	var Key := Shape * 100 + Kind
+	var Key := hash([Shape, Kind, Styles.Shown[Kind]])
 	if HintMaterials.has(Key):
 		return HintMaterials[Key]
-	var Tint := Styles.Palette[Kind]
+	var Tint := Styles.Shown[Kind]
 	var Result: Material
 	if Shape == BlockStyles.Shapes.Sphere:
 		var Stripes := ShaderMaterial.new()

@@ -14,6 +14,7 @@ const SunDirection := Vector3(-40, 25, 0)
 static var ReflectionSky: Sky
 static var BackgroundKind: int = Backgrounds.Kinds.Gray
 static var SpecularOn: bool = false
+static var MetallicOn: bool = false
 static var Ground: MeshInstance3D
 static var FloorMaterial: StandardMaterial3D
 static var SolidChecker: ImageTexture
@@ -65,7 +66,14 @@ static func MakeReflectionSky() -> Sky:
 ## Specular lighting: with it on, the sun's highlight is stronger and the sky is reflected in glossy surfaces.
 static func SetSpecular(On: bool) -> void:
 	SpecularOn = On
-	Sun.light_specular = 2.0 if On else 1.0
+	Sun.light_specular = 2.0 if On or MetallicOn else 1.0
+	ApplySky()
+
+
+## Metallic pieces need something to reflect: the sky is on for them, as for Specular.
+static func SetMetallic(On: bool) -> void:
+	MetallicOn = On
+	Sun.light_specular = 2.0 if On or SpecularOn else 1.0
 	ApplySky()
 
 
@@ -83,11 +91,11 @@ static func ApplySky() -> void:
 	var Drawn := Backgrounds.SkyFor(BackgroundKind)
 	if Drawn == null:
 		SceneEnvironment.background_mode = Environment.BG_COLOR
-		SceneEnvironment.sky = ReflectionSky if SpecularOn else null
+		SceneEnvironment.sky = ReflectionSky if SpecularOn or MetallicOn else null
 	else:
 		SceneEnvironment.background_mode = Environment.BG_SKY
 		SceneEnvironment.sky = Drawn
-	SceneEnvironment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if SpecularOn else Environment.REFLECTION_SOURCE_DISABLED
+	SceneEnvironment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if SpecularOn or MetallicOn else Environment.REFLECTION_SOURCE_DISABLED
 
 
 ## The floor's checkerboard: the gray squares and the darker ones. With `ClearGray` the gray squares are see-through (Sky).

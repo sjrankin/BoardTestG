@@ -17,7 +17,7 @@ var Elapsed: float = 0.0
 ## Goal color (`Kind`) -> pieces still to remove (0 once done). `GoalOrder` is the goal colors in the level's order.
 var Remaining: Dictionary = {}
 var GoalOrder: Array[int] = []
-## True once the goal has been reached (in Zen play goes on after it).
+## True once the goal has been reached (in Zen play goes on after it, and a Next Level button appears).
 var GoalMet: bool = false
 ## Set by `Main` while Attract Mode is on: turns are counted, but no goal, turn limit or time limit ends the game (Attract Mode is
 ## over only when no group is left to remove).

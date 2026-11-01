@@ -1,462 +1,7 @@
 class_name BoardView
-extends Node3D
-## Draws a `BoardModel` as pieces standing in a vertical grid, taps and turns, and animates falls, refills and shuffles.
-## Removed pieces are handed to a `FlyerSystem`; how pieces look comes from a `BlockStyles`.
-##
-## In the board's own space the board lies in the XY plane (z = 0), Row 0 at the top, centered on the node's origin.
-## The node sits at the board's middle and turns about it.
+extends BoardViewRemoval
 
-signal ScoreChanged(NewScore: int)
-## A tap removed a group of `Size` pieces of color `Kind`.
-signal GroupRemoved(Kind: int, Size: int)
-signal BoardRebuilt
-## Attract Mode only: after a drop no group of three or more is left to remove.
-signal NoPlayableGroups
-
-const FallDuration := 0.35
-## How far the board is turned about the vertical while the Malicious "turn and lock" setting is on.
-const LockedYaw := PI / 4.0
-## Auto Rotate: the turn about the vertical per second, and how far (and how fast) the board rocks to and fro.
-const AutoYawRate := 0.3
-const AutoTiltSwing := 0.55
-const AutoTiltRate := 0.45
-const ShuffleDuration := 0.7
-## How long lightning crackles across a group before its pieces fly out.
-const LightningLead := 0.2
-## How far toward the camera a shuffling piece arcs at the middle of its flight.
-const ShuffleLift := 2.0
-
-var Model: BoardModel
-var Styles := BlockStyles.new()
-var Flyers: FlyerSystem
-## How fast removed pieces leave, as a multiple of the base launch speed. Set from the controls.
-var RemovalSpeed: float = 1.0:
-	set(Value):
-		RemovalSpeed = Value
-		if Flyers != null:
-			Flyers.RemovalSpeed = Value
-## The board turns about its own middle: `Yaw` about the world's vertical, then `Tilt` about the board's own
-## horizontal axis (so no part of it ever dips below the floor). Gravity stays world-down whatever the angle.
-var Yaw: float = 0.0
-var Tilt: float = 0.0
-var AutoRotate: bool = false
-var AutoClock: float = 0.0
-## Which way is down for the user: the camera's screen-down, in world space. Set every frame by the scene.
-var UserDown: Vector3 = Vector3.DOWN
-## Whether lightning plays across a group as it is cleared. Set from the controls.
-var LightningEnabled: bool = true
-## How removed pieces leave: Fly Away (pop out, fall, fade), Mini Me (burst into at least 10 fast small copies), Explode (shatter into
-## flat shards, much faster), or one of the three that play in place (`InPlaceRemoval`): Disappear, Spin and Shrink, Spin then Vanish.
-## (New ones go on the end, so a remembered choice keeps meaning the same thing.) Set from the controls.
-enum RemovalEffects { FlyAway, MiniMe, Explode, Disappear, SpinShrink, SpinVanish }
-var RemovalEffect: int = RemovalEffects.FlyAway
-## Counts new games, so something waiting (the lightning) can tell the board it was waiting on has gone.
-var GameNumber: int = 0
-## Whether the Blockers throw off plasma zaps. Set from the controls.
-var BlockerZapsEnabled: bool = true
-var BlockerLights: Array[BlockerLight] = []
-## The idle hint (see `IdleHint`), and whether Attract Mode is playing (no hints then). Set by the scene.
-var Hint := IdleHint.new()
-## The joins of the three joined shapes (see `JoinSystem`), and the ids of pieces that are not at rest (they have none).
-var Joins := JoinSystem.new()
-var MovingIds: Dictionary = {}
-var AttractActive: bool = false
-var Busy: bool = false
-## Malicious (Settings): the board is held turned `LockedYaw` and cannot be turned; the Blockers move after every group; a veil
-## hides every piece of color `VeilKind` (-1 = none).
-var TurnLocked: bool = false
-var BlockersMove: bool = false
-var VeilKind: int = -1
-## Set by `Main` while the game is not being played (a level won or lost): taps, shuffles and Attract Mode moves do nothing.
-var InputLocked: bool = false
-var PieceNodes: Dictionary = {}
-var WaitingForVacate: bool = false
-var VacateClock: float = 0.0
-var PendingTweens: int = 0
-var PendingShuffles: int = 0
-## How many in-place removal effects are still playing; a refill waits for them.
-var InPlaceActive: int = 0
-
-
-# MARK: Game lifecycle
-
-func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = []) -> void:
-	for Child in get_children():
-		Child.queue_free()
-	PieceNodes.clear()
-	BlockerLights.clear()
-	if Flyers == null:
-		Flyers = FlyerSystem.new()
-		Flyers.Styles = Styles
-		Flyers.RemovalSpeed = RemovalSpeed
-		get_parent().add_child(Flyers)
-	Flyers.Reset()
-	WaitingForVacate = false
-	PendingTweens = 0
-	InPlaceActive = 0
-	GameNumber += 1
-	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers)
-	Hint.Clear()
-	MovingIds.clear()
-	Joins.Model = Model
-	Joins.Styles = Styles
-	Joins.PieceNodes = PieceNodes
-	Hint.Model = Model
-	Hint.Styles = Styles
-	Hint.PieceNodes = PieceNodes
-	Hint.IdleTime = 0.0
-	# The specks that make Godot compile the hint's shaders now, just behind the middle of the board.
-	Hint.WarmUp(self, Vector3(0, 0, -0.6))
-	position = Vector3(0, Height / 2.0 + 0.5, 0)
-	VeilKind = -1
-	if TurnLocked:
-		Yaw = LockedYaw
-		Tilt = 0.0
-	ApplyRotation()
-	BuildNodes()
-	Joins.Update(MovingIds)
-	Busy = false
-	ScoreChanged.emit(0)
-	BoardRebuilt.emit()
-
-
-func BuildNodes() -> void:
-	for Col in Model.Width:
-		for Row in Model.Height:
-			if Model.IsBlocker(Col, Row):
-				AddBlockerLight(Col, Row, false)
-				continue
-			var Piece := Model.GetPiece(Col, Row)
-			if Piece != null:
-				AddPieceNode(Piece, CellPosition(Col, Row))
-
-
-## A Blocker's light in a cell; `Grow` makes it swell in from nothing (a Blocker that has just moved there).
-func AddBlockerLight(Col: int, Row: int, Grow: bool) -> void:
-	var Light := BlockerLight.Create(Styles, CellPosition(Col, Row))
-	Light.ZapsEnabled = BlockerZapsEnabled
-	add_child(Light)
-	BlockerLights.append(Light)
-	if Grow:
-		# Not quite nothing: a collider with a zero scale makes the physics engine complain.
-		Light.scale = Vector3.ONE * 0.01
-		Light.create_tween().tween_property(Light, "scale", Vector3.ONE, 0.4).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-## Malicious: moves the Blockers (see `BoardModel.RelocateBlockers`): the pieces they land on vanish, the old lights go, new ones
-## swell in. The drop that follows fills the cells they left.
-func RelocateBlockers() -> void:
-	if Model.BlockerCount <= 0:
-		return
-	Hint.Clear()
-	var Result := Model.RelocateBlockers()
-	for Entry in Result["Gone"]:
-		var Piece: BoardModel.PieceData = Entry["Piece"]
-		var Node: Node3D = PieceNodes.get(Piece.Id)
-		if Node != null:
-			Joins.Strip(Node)
-			Node.queue_free()
-		PieceNodes.erase(Piece.Id)
-	for Light in BlockerLights:
-		if is_instance_valid(Light):
-			Light.queue_free()
-	BlockerLights.clear()
-	for Cell in Result["New"]:
-		AddBlockerLight(Cell.x, Cell.y, true)
-
-
-## Malicious: hides every piece of color `Kind` behind a tile (see `Veil`).
-func VeilOn(Kind: int) -> void:
-	VeilKind = Kind
-	for Node in PieceNodes.values():
-		if is_instance_valid(Node) and Node.get_meta("Kind") == Kind:
-			Veil.Cover(Node, true, true)
-
-
-func VeilOff() -> void:
-	VeilKind = -1
-	for Node in PieceNodes.values():
-		if is_instance_valid(Node):
-			Veil.Uncover(Node)
-
-
-## Malicious: turns the board to `LockedYaw` and keeps it there (or lets the player turn it again).
-func SetTurnLocked(On: bool) -> void:
-	TurnLocked = On
-	if not On:
-		return
-	if is_inside_tree():
-		Recenter()
-	else:
-		Yaw = LockedYaw
-		Tilt = 0.0
-		ApplyRotation()
-
-
-## The board-space position of a cell's center; also correct for cells just off the board, where new pieces queue.
-func CellPosition(Col: int, Row: int) -> Vector3:
-	return Vector3((Col - (Model.Width - 1) / 2.0) * BlockStyles.Pitch, (Model.Height / 2.0 - Row - 0.5) * BlockStyles.Pitch, 0.0)
-
-
-## A node for one piece standing on the board. It carries a static collider so flying pieces bounce off it.
-func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
-	var Node := Styles.MakeVisual(Piece.Kind)
-	var Collider := StaticBody3D.new()
-	Collider.collision_layer = PhysicsLayers.Board
-	Collider.collision_mask = 0
-	var Shape := CollisionShape3D.new()
-	Shape.shape = Styles.ColliderShape()
-	Collider.add_child(Shape)
-	Node.add_child(Collider)
-	Node.position = At
-	add_child(Node)
-	PieceNodes[Piece.Id] = Node
-	if VeilKind >= 0 and Piece.Kind == VeilKind:
-		Veil.Cover(Node, true, false)
-	return Node
-
-
-## Recomputes the joins: after a shape change (so a new joined shape gets its joins, and a plain one loses them).
-func RefreshJoins() -> void:
-	if Model != null:
-		Joins.Update(MovingIds)
-
-
-## Turns the Blockers' plasma zaps on or off.
-func SetBlockerZaps(On: bool) -> void:
-	BlockerZapsEnabled = On
-	for Light in BlockerLights:
-		if is_instance_valid(Light):
-			Light.ZapsEnabled = On
-
-
-## Changes the shape of every piece on the board and of every piece dealt from now on.
-func SetBlockShape(NewShape: int) -> void:
-	Hint.Clear()
-	call_deferred("RefreshJoins")
-	Styles.CurrentShape = clampi(NewShape, 0, BlockStyles.Shapes.size() - 1)
-	for Id in PieceNodes:
-		var Node: Node3D = PieceNodes[Id]
-		Styles.ApplyShape(Node, Styles.CurrentShape)
-		((Node.get_child(2) as StaticBody3D).get_child(0) as CollisionShape3D).shape = Styles.ColliderShape()
-
-
-# MARK: Input
-
-## Whether a camera ray meets the board (the rectangle of its cells, pieces or not).
-func HitsBoard(WorldOrigin: Vector3, WorldDirection: Vector3) -> bool:
-	if Model == null:
-		return false
-	var ToBoard := global_transform.affine_inverse()
-	var Origin := ToBoard * WorldOrigin
-	var Direction := ToBoard.basis * WorldDirection
-	if absf(Direction.z) < 0.0001:
-		return false
-	var T := -Origin.z / Direction.z
-	if T < 0.0:
-		return false
-	var Point := Origin + Direction * T
-	var Col := floori(Point.x / BlockStyles.Pitch + Model.Width / 2.0)
-	var Row := floori(Model.Height / 2.0 - Point.y / BlockStyles.Pitch)
-	return Col >= 0 and Col < Model.Width and Row >= 0 and Row < Model.Height
-
-
-## A tap on the board along a camera ray.
-func HandleTapRay(WorldOrigin: Vector3, WorldDirection: Vector3) -> void:
-	if Busy or InputLocked or Model == null:
-		return
-	# The ray in the board's own space, where the board is the plane z = 0 however it is turned.
-	var ToBoard := global_transform.affine_inverse()
-	var Origin := ToBoard * WorldOrigin
-	var Direction := ToBoard.basis * WorldDirection
-	if absf(Direction.z) < 0.0001:
-		return
-	var T := -Origin.z / Direction.z
-	if T < 0.0:
-		return
-	var Point := Origin + Direction * T
-	var Col := floori(Point.x / BlockStyles.Pitch + Model.Width / 2.0)
-	var Row := floori(Model.Height / 2.0 - Point.y / BlockStyles.Pitch)
-	# A tap that lands on a piece of the board takes any showing hint away (even one that clears no group).
-	if Model.GetPiece(Col, Row) != null:
-		Hint.Dismiss()
-	TapCell(Col, Row)
-
-
-func TapCell(Col: int, Row: int) -> void:
-	if Busy or InputLocked or Model == null:
-		return
-	var Group := Model.GroupAt(Col, Row)
-	if Group.size() < BoardModel.MinimumGroupSize:
-		return
-	Busy = true
-	var Removed := Model.Remove(Group)
-	ScoreChanged.emit(Model.Score)
-	if not Removed.is_empty():
-		GroupRemoved.emit((Removed[0]["Piece"] as BoardModel.PieceData).Kind, Removed.size())
-	var Leaving: Array[Dictionary] = []
-	for Entry in Removed:
-		var Piece: BoardModel.PieceData = Entry["Piece"]
-		var Node: Node3D = PieceNodes.get(Piece.Id)
-		PieceNodes.erase(Piece.Id)
-		if Node != null:
-			Leaving.append({"Node": Node, "Kind": Piece.Kind})
-			Joins.Strip(Node)
-	# Whatever was joined to a removed piece is on its own again at once.
-	Joins.Update(MovingIds)
-	if LightningEnabled and not Leaving.is_empty():
-		await CrackleLightning(Leaving)
-	SendFlying(Leaving)
-
-
-## Shatters every piece on the board (a won level): the board is left empty and the shards fly, and any Blockers fly off out of
-## sight. The caller starts the next game.
-func ExplodeAll() -> void:
-	Busy = true
-	Hint.Clear()
-	var Camera := get_viewport().get_camera_3d()
-	for Light in BlockerLights:
-		if Camera != null and is_instance_valid(Light):
-			# The next game waits for them like it waits for any removal effect.
-			InPlaceActive += 1
-			Light.Gone.connect(OnInPlaceDone.bind(GameNumber))
-			Light.FlyAway(Camera)
-	BlockerLights.clear()
-	var Entries: Array[Dictionary] = []
-	for Col in Model.Width:
-		for Row in Model.Height:
-			var Piece := Model.GetPiece(Col, Row)
-			if Piece == null:
-				continue
-			var Node: Node3D = PieceNodes.get(Piece.Id)
-			if Node != null:
-				Entries.append({"Kind": Piece.Kind, "Position": Node.global_position})
-				Joins.Strip(Node)
-				Node.queue_free()
-			PieceNodes.erase(Piece.Id)
-			Model.SetPiece(Col, Row, null)
-	Flyers.ExplodeAll(Entries)
-
-
-## Lightning arcs across the pieces about to leave, while they are still in place; returns when it is time for them to go.
-func CrackleLightning(Leaving: Array[Dictionary]) -> void:
-	var Game := GameNumber
-	var Points: Array[Vector3] = []
-	for Entry in Leaving:
-		Points.append((Entry["Node"] as Node3D).global_position)
-	var Tint := Color(0.55, 0.75, 1.0).lerp(Styles.Palette[Leaving[0]["Kind"]], 0.3)
-	LightningEffect.Play(get_parent(), Points, Tint)
-	await get_tree().create_timer(LightningLead).timeout
-	# A new game started while the lightning played: the pieces it was about are gone.
-	if Game != GameNumber:
-		Leaving.clear()
-
-
-## Pops the removed pieces out of the board's front face and starts waiting for them to leave their cells.
-func SendFlying(Leaving: Array[Dictionary]) -> void:
-	for Entry in Leaving:
-		var Node: Node3D = Entry["Node"]
-		if not is_instance_valid(Node):
-			continue
-		if RemovalEffect >= RemovalEffects.Disappear:
-			# Plays where it stands; the piece is freed when the effect is over.
-			InPlaceActive += 1
-			InPlaceRemoval.Play(self, Node, RemovalEffect, OnInPlaceDone.bind(GameNumber))
-			continue
-		if RemovalEffect == RemovalEffects.Explode:
-			Flyers.Explode(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinShardsPerPiece, FlyerSystem.MaxShardsPerPiece))
-		elif RemovalEffect == RemovalEffects.MiniMe:
-			# The piece bursts where it stands; its cell stays open, so the fragments are free to leave it (or bounce back in).
-			Flyers.MiniMe(Entry["Kind"], Node.global_position, randi_range(FlyerSystem.MinFragmentsPerPiece, FlyerSystem.MaxFragmentsPerPiece))
-		else:
-			# Out of the board's face, along its normal as it is turned right now.
-			Flyers.Launch(Entry["Kind"], Node.global_position, global_basis)
-			Flyers.AddOriginBlocker(self, Node.position)
-		Node.queue_free()
-	WaitingForVacate = true
-	VacateClock = 0.0
-
-
-func OnInPlaceDone(Game: int) -> void:
-	if Game == GameNumber:
-		InPlaceActive = maxi(InPlaceActive - 1, 0)
-
-
-## Attract Mode's move: the largest playable group; among groups of the same size, the one closest on average to the bottom
-## (the bottom as the user sees it, so the same direction gravity pulls); among those still equal, one at random.
-func AttractStep() -> void:
-	if Busy or InputLocked or Model == null:
-		return
-	var Groups := Model.PlayableGroups()
-	if Groups.is_empty():
-		return
-	var Down := GravityFromUser()
-	var Best: Array = []
-	var BestSize := 0
-	var BestDistance := INF
-	for Group in Groups:
-		var Distance := AverageDistanceFromBottom(Group, Down)
-		if Group.size() > BestSize or (Group.size() == BestSize and Distance < BestDistance - 0.0001):
-			Best = [Group]
-			BestSize = Group.size()
-			BestDistance = Distance
-		elif Group.size() == BestSize and absf(Distance - BestDistance) <= 0.0001:
-			Best.append(Group)
-	var Chosen: Array = Best[randi() % Best.size()]
-	TapCell(Chosen[0].x, Chosen[0].y)
-
-
-## How far, on average, the cells of a group are from the bottom edge of the board when gravity pulls toward `Down`.
-func AverageDistanceFromBottom(Group: Array, Down: Vector2i) -> float:
-	var Total := 0.0
-	for Cell in Group:
-		if Down == Vector2i(0, 1):
-			Total += Model.Height - 1 - Cell.y
-		elif Down == Vector2i(0, -1):
-			Total += Cell.y
-		elif Down == Vector2i(1, 0):
-			Total += Model.Width - 1 - Cell.x
-		else:
-			Total += Cell.x
-	return Total / Group.size()
-
-
-## How far the camera should stand back to see the whole board, and where it should look.
-func FrameDistance() -> float:
-	return maxf(Model.Width, Model.Height) * 2.5
-
-
-func FrameMiddle() -> Vector3:
-	return Vector3(0, Model.Height * 0.38, 0)
-
-
-# MARK: Turning the board
-
-func ApplyRotation() -> void:
-	basis = Basis(Vector3.UP, Yaw) * Basis(Vector3.RIGHT, Tilt)
-
-
-func RotateBy(DeltaYaw: float, DeltaTilt: float) -> void:
-	if TurnLocked:
-		return
-	Yaw = wrapf(Yaw + DeltaYaw, -PI, PI)
-	Tilt = wrapf(Tilt + DeltaTilt, -PI, PI)
-	ApplyRotation()
-
-
-## Turns the board back to face the camera, the short way round.
-func Recenter() -> void:
-	Yaw = wrapf(Yaw, -PI, PI)
-	Tilt = wrapf(Tilt, -PI, PI)
-	var Turn := create_tween()
-	Turn.tween_method(RecenterStep.bind(Yaw, Tilt, LockedYaw if TurnLocked else 0.0), 0.0, 1.0, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
-
-
-func RecenterStep(Progress: float, StartYaw: float, StartTilt: float, TargetYaw: float) -> void:
-	Yaw = StartYaw + angle_difference(StartYaw, TargetYaw) * Progress
-	Tilt = lerpf(StartTilt, 0.0, Progress)
-	ApplyRotation()
-
+## Shuffling, falling and refilling, and the per-frame step (this class; the rest is in the scripts it extends, in this order: BoardViewTurning, BoardViewBuild, BoardViewRemoval).
 
 func _process(Delta: float) -> void:
 	if Model != null:
@@ -472,22 +17,9 @@ func _physics_process(Delta: float) -> void:
 	# The refill waits until every removed piece has left its cell (or a timeout), on the pieces' own clock.
 	if WaitingForVacate:
 		VacateClock += Delta * RemovalSpeed
-		if (Flyers.AllVacated() and InPlaceActive == 0) or VacateClock > FlyerSystem.VacateTimeout:
+		if (Flyers.AllVacated() and InPlaceActive == 0) or VacateClock > VacateLimit():
 			WaitingForVacate = false
 			StartDrop()
-
-
-# MARK: Falling and refilling
-
-## Gravity on the board is down as the user sees it, whatever way the board is turned: the camera's screen-down,
-## taken into the board's own space and rounded to the nearest of the four grid directions.
-func GravityFromUser() -> Vector2i:
-	var Local := global_basis.inverse() * UserDown
-	if maxf(absf(Local.x), absf(Local.y)) < 0.05:
-		return Model.GravityDir
-	if absf(Local.y) >= absf(Local.x):
-		return Vector2i(0, 1) if Local.y < 0.0 else Vector2i(0, -1)
-	return Vector2i(1, 0) if Local.x > 0.0 else Vector2i(-1, 0)
 
 
 func StartDrop() -> void:
@@ -564,10 +96,20 @@ func FinishDrop() -> void:
 
 ## No group of three left: shuffle what is there (up to three tries), then deal again.
 func Recover() -> void:
+	# If the board is dealt again, the old pieces go in a puff of smoke (with Smoke chosen). Dealing replaces them in the model,
+	# so their colors are noted before.
+	var OldKinds: Dictionary = KindsById() if RemovalEffect == RemovalEffects.Smoke else {}
 	var Result := Model.Shuffle()
 	if Result["Redealt"]:
-		for Id in PieceNodes:
-			PieceNodes[Id].queue_free()
+		if RemovalEffect == RemovalEffects.Smoke:
+			var Old: Array[Dictionary] = []
+			var Front := SmokeFront()
+			for Id in PieceNodes:
+				Old.append({"Node": PieceNodes[Id], "Kind": OldKinds.get(Id, 0), "Out": Front})
+			SmokeBurst.Replace(Flyers, Old, Styles.Shown, RemovalSpeed, SmokeUp())
+		else:
+			for Id in PieceNodes:
+				PieceNodes[Id].queue_free()
 		PieceNodes.clear()
 		for Col in Model.Width:
 			for Row in Model.Height:
@@ -581,6 +123,17 @@ func Recover() -> void:
 		get_tree().create_timer(0.45).timeout.connect(func() -> void: Busy = false)
 		return
 	AnimateShuffle(Result["Moves"])
+
+
+## The color of every piece on the board, by piece id.
+func KindsById() -> Dictionary:
+	var Kinds: Dictionary = {}
+	for Col in Model.Width:
+		for Row in Model.Height:
+			var Piece := Model.GetPiece(Col, Row)
+			if Piece != null:
+				Kinds[Piece.Id] = Piece.Kind
+	return Kinds
 
 
 ## Every piece flies to its new cell in an arc toward the camera, turning once on the way and landing upright.

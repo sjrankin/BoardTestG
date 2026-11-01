@@ -9,13 +9,15 @@ extends Node
 ##   --yaw=DEG --tilt=DEG   start with the board turned
 ##   --rotate        start with Auto Rotate on
 ##   --lightning     with --capture, just clear one group and save screenshots through the lightning, then quit
+##   --malicious=N,N with --capture, turn those Settings > Malicious switches on (they are saved like a click)
+##   --veil          with --capture, lower the Malicious veil over color 0 at frame 25 (shots at 20 and 35)
 ##   --settings      with --capture, open the settings window at frame 25 (shots at frames 20 and 35 show it closed and open)
 ##   --fade          with --capture, hold one piece still in front of the board and fade it, saving a shot every 2 frames
 ##   --hint          with --capture, show the idle hint right away (frame 25) and save shots at 20 and 35
 ##   --shot          with --capture, press the screenshot button at frame 25 and save a normal shot at 35 (to see the button)
 ##   --background=N  (read by Main) start with background N (0 gray, 1 sky, 2 night, 3 star flight)
 ##   --explode       start with the Explode removal effect (flat shards)
-##   --effect=N      start with removal effect N (0 fly away, 1 mini me, 2 explode, 3 disappear, 4 spin and shrink, 5 spin then vanish)
+##   --effect=N      start with removal effect N (0 fly away, 1 mini me, 2 explode, 3 disappear, 4 spin and shrink, 5 spin then vanish, 6 puff of smoke)
 ##   --minime        start with the Mini Me removal effect
 ##   --burst         with --capture, also save a screenshot every few frames from frame 120 to 260 (to catch an effect)
 
@@ -36,6 +38,7 @@ var FrameCount: int = 0
 static var BurstRequested: bool = false
 static var LightningRequested: bool = false
 static var SettingsRequested: bool = false
+static var VeilRequested: bool = false
 static var FadeRequested: bool = false
 static var HintRequested: bool = false
 static var ShotRequested: bool = false
@@ -71,6 +74,13 @@ static func FromCommandLine(TheView, TheBar: ControlBar) -> CaptureRunner:
 			HintRequested = true
 		elif Argument == "--fade":
 			FadeRequested = true
+		elif Argument.begins_with("--malicious="):
+			for Switch in Argument.trim_prefix("--malicious=").split(","):
+				TheBar.MaliciousChecks[int(Switch)].button_pressed = true
+		elif Argument == "--metallic":
+			TheBar.MetallicCheck.button_pressed = true
+		elif Argument == "--veil":
+			VeilRequested = true
 		elif Argument == "--settings":
 			SettingsRequested = true
 		elif Argument == "--burst":
@@ -121,15 +131,17 @@ func _process(_Delta: float) -> void:
 		return
 	if ShotRequested and FrameCount == 25:
 		Bar.ScreenshotPressed.emit()
+	if VeilRequested and FrameCount == 25:
+		View.VeilOn(0)
 	if SettingsRequested and FrameCount == 25:
 		Bar.OpenSettings()
 	if FrameCount == 2:
 		Bar.AttractCheck.button_pressed = false
-	if FrameCount == 8:
+	if FrameCount == 8 and not VeilRequested:
 		View.ShuffleNow()
-	if FrameCount == 120:
+	if FrameCount == 120 and not VeilRequested:
 		Bar.AttractCheck.button_pressed = true
-	if FrameCount in ShotFrames or (Burst and FrameCount >= 120 and FrameCount <= 260 and FrameCount % 3 == 0):
+	if FrameCount in ShotFrames or (VeilRequested and FrameCount in [60, 100]) or (Burst and FrameCount >= 120 and FrameCount <= 260 and FrameCount % 3 == 0):
 		var Shot := get_viewport().get_texture().get_image()
 		Shot.save_png("%s/Shot%04d.png" % [Directory, FrameCount])
 	if FrameCount > LastFrame:

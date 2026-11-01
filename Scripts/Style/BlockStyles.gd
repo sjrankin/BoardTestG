@@ -26,6 +26,8 @@ const OutlineScale := 1.05
 ## How rough the color materials are: the matte look, and the glossy one with Specular on.
 const MatteRoughness := 0.45
 const SpecularRoughness := 0.14
+## The metallic look: how rough the polished metal is (a little rougher than glossy, so the reflections are soft).
+const MetalRoughness := 0.26
 
 const Palette: Array[Color] = [
 	Color(0.90, 0.20, 0.20),
@@ -38,8 +40,20 @@ const Palette: Array[Color] = [
 	Color(0.95, 0.55, 0.15),
 ]
 
+## Malicious (Settings): the colors the pieces are drawn in. `Scrambled` draws each group in another group's color (`Order` says
+## which: group Kind is shown in the color of group `Order[Kind]`), `Faded` drains most of the color, `AllWhite` draws every
+## group white. `Shown` holds the color each group is drawn in right now; the game itself always works with the group (the Kind),
+## and the goal badges keep the real colors, so the player must work out which group a piece belongs to.
+const FadedKeep := 0.15
+var Scrambled: bool = false
+var Faded: bool = false
+var AllWhite: bool = false
+var Order: Array[int] = [0, 1, 2, 3, 4, 5, 6, 7]
+var Shown: Array[Color] = Palette.duplicate()
+
 var CurrentShape: int = Shapes.Cube
 var SpecularEnabled: bool = false
+var MetallicEnabled: bool = false
 var Materials: Array[StandardMaterial3D] = []
 var OutlineMaterial: StandardMaterial3D
 var BodyMeshes: Array[Mesh] = []
@@ -71,15 +85,73 @@ func _init() -> void:
 
 # MARK: Using a style
 
+## A new random scramble over the first `Groups` groups: every one of them takes the color of a different one of them, and no two
+## take the same color. (Groups past `Groups` are not in the game and keep their own.) Call `RefreshColors` after.
+func Reshuffle(Groups: int) -> void:
+	Groups = clampi(Groups, 0, Palette.size())
+	var Fresh: Array[int] = [0, 1, 2, 3, 4, 5, 6, 7]
+	if Groups >= 2:
+		var Pool: Array[int] = []
+		for Index in Groups:
+			Pool.append(Index)
+		var Fixed := true
+		while Fixed:
+			Pool.shuffle()
+			Fixed = false
+			for Index in Groups:
+				if Pool[Index] == Index:
+					Fixed = true
+		for Index in Groups:
+			Fresh[Index] = Pool[Index]
+	Order = Fresh
+
+
+## The color group `Kind` is drawn in with the Malicious color switches as they are now.
+func ShownColor(Kind: int) -> Color:
+	var Result := Palette[Order[Kind]] if Scrambled else Palette[Kind]
+	if Faded:
+		var Grey := Result.get_luminance()
+		Result = Color(Grey, Grey, Grey).lerp(Result, FadedKeep)
+	if AllWhite:
+		Result = Color.WHITE
+	return Result
+
+
+## Redraws every piece in the colors of `ShownColor`: the pieces share these materials, so those on the board change at once.
+func RefreshColors() -> void:
+	for Kind in Palette.size():
+		Shown[Kind] = ShownColor(Kind)
+		Materials[Kind].albedo_color = Shown[Kind]
+		GlowHaloMaterials[Kind].albedo_color = Color(Shown[Kind], 0.85)
+		GlowCoreMaterials[Kind].albedo_color = Color(Shown[Kind].lerp(Color.WHITE, 0.65), 1.0)
+
+
 ## Glossy, mirror-like pieces (a hard bright highlight, a clear coat, reflections of the sky) when `On`, the matte look
 ## otherwise. Applies to every solid shape's color materials - not to the Glow piece, which is only light - and to every
 ## piece already on the board, since they share these materials.
 func SetSpecular(On: bool) -> void:
 	SpecularEnabled = On
+	ApplyFinish()
+
+
+## Metal pieces (the piece's color as the tint of polished metal, reflecting the sky) when `On`. They can be glossy as well.
+## (The reflections come from `SceneSetup`, which has the sky on for this too.)
+func SetMetallic(On: bool) -> void:
+	MetallicEnabled = On
+	ApplyFinish()
+
+
+## Works every color material's finish out from the Specular and Metallic switches.
+func ApplyFinish() -> void:
 	for Material in Materials:
-		Material.roughness = SpecularRoughness if On else MatteRoughness
-		Material.metallic_specular = 1.0 if On else 0.5
-		Material.clearcoat_enabled = On
+		Material.roughness = MatteRoughness
+		if MetallicEnabled:
+			Material.roughness = MetalRoughness
+		if SpecularEnabled:
+			Material.roughness = SpecularRoughness
+		Material.metallic = 1.0 if MetallicEnabled else 0.0
+		Material.metallic_specular = 1.0 if SpecularEnabled or MetallicEnabled else 0.5
+		Material.clearcoat_enabled = SpecularEnabled
 		Material.clearcoat = 0.9
 		Material.clearcoat_roughness = 0.06
 
