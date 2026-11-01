@@ -21,7 +21,8 @@ const PiecesPerTurn := 1.6
 ## Colors the Blocker cells are worked out for (placement does not depend on them).
 const ColorsForPlacement := 5
 
-## One row per level, easiest first: [Width x Height, colors dealt (4 to 6), goals]. Each goal is Vector2i(color, pieces to
+## One row per level, easiest first: [Width x Height (a Vector2i) or the name of an irregular layout (`BoardLayouts`, a String),
+## colors dealt (4 to 6), goals]. Each goal is Vector2i(color, pieces to
 ## remove); a color not listed is not part of the goal. Colors are numbered as in `BlockStyles.Palette` (0 red, 1 green, 2 blue,
 ## 3 cyan, 4 yellow, 5 magenta).
 const Table: Array = [
@@ -35,6 +36,11 @@ const Table: Array = [
 	[Vector2i(4, 6), 4, [Vector2i(1, 20), Vector2i(3, 20), Vector2i(2, 15)]],
 	[Vector2i(13, 11), 6, [Vector2i(4, 36), Vector2i(5, 36), Vector2i(2, 30), Vector2i(0, 30)]],
 	[Vector2i(15, 3), 6, [Vector2i(1, 40), Vector2i(4, 40), Vector2i(5, 40)]],
+	["Diamond", 4, [Vector2i(0, 12), Vector2i(2, 10)]],
+	["Cross", 5, [Vector2i(1, 15), Vector2i(4, 12)]],
+	["Hourglass", 5, [Vector2i(2, 18), Vector2i(4, 15)]],
+	["Heart", 6, [Vector2i(5, 18), Vector2i(1, 18), Vector2i(3, 12)]],
+	["Ring", 6, [Vector2i(0, 26), Vector2i(4, 26), Vector2i(2, 20)]],
 ]
 
 ## Where the difficulty test's results are kept between launches (one section per level).
@@ -105,20 +111,35 @@ static func TurnsFor(Pieces: int, BoardPieces: int) -> int:
 	return Base + ceili(Base * lerpf(FudgeFewestPieces, FudgeMostPieces, Fraction))
 
 
-static func Build(Number: int, Size: Vector2i, Colors: int, Goals: Array) -> LevelDefinition:
+## The difficulty a level has before the difficulty test has measured it: its number for the ten rectangular levels, then 2, 4, 6, 8, 10
+## for the irregular ones that follow.
+static func InitialDifficulty(Number: int) -> int:
+	return Number if Number <= 10 else (Number - 10) * 2
+
+
+static func Build(Number: int, Shape: Variant, Colors: int, Goals: Array) -> LevelDefinition:
+	var Layout := ""
+	var Size: Vector2i
+	if Shape is String:
+		Layout = Shape
+		Size = BoardLayouts.Size(Layout)
+	else:
+		Size = Shape
 	var Width := Size.x
 	var Height := Size.y
 	var Level := LevelDefinition.new()
-	Level.Difficulty = Number
+	if not Layout.is_empty():
+		Level.PresetGaps = BoardLayouts.Gaps(Layout)
+	Level.Difficulty = InitialDifficulty(Number)
 	Level.ShapeType = LevelDefinition.ShapeTypes.TwoD
 	Level.Dimensions = Vector3i(Width, Height, 0)
-	var Cells := Width * Height
+	var Cells := Width * Height - Level.PresetGaps.size()
 	var MostBlockers := Cells / CellsPerBlocker
 	if MostBlockers > 0:
 		var Rng := RandomNumberGenerator.new()
 		Rng.seed = Number * 7919
 		var Wanted := Rng.randi_range(maxi(1, MostBlockers / 2), MostBlockers)
-		var Placer := BoardModel.new(Width, Height, ColorsForPlacement, Wanted, Number * 7919 + 1)
+		var Placer := BoardModel.new(Width, Height, ColorsForPlacement, Wanted, Number * 7919 + 1, [], Level.PresetGaps)
 		for Col in Width:
 			for Row in Height:
 				if Placer.IsBlocker(Col, Row):

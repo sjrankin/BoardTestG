@@ -59,6 +59,9 @@ var Colors: int = DefaultColors
 
 var Blockers: int = DefaultBlockers
 
+## The 2D board's layout: an index into `BoardLayouts.Names()` (0 = the plain Width x Height rectangle). Saved as `BoardLayout`.
+var Layout: int = 0
+
 var Bar: ControlBar
 
 ## The game in progress: play mode, level, turns and time.
@@ -202,7 +205,7 @@ func ShowBoardType() -> void:
 	if Is3D:
 		Bar.ShowBoardType(true, Dimensions3D.x, Dimensions3D.y, Dimensions3D.z, Blockers)
 	else:
-		Bar.ShowBoardType(false, Dimensions2D.x, Dimensions2D.y, Dimensions3D.z, Blockers)
+		Bar.ShowBoardType(false, Dimensions2D.x, Dimensions2D.y, Dimensions3D.z, Blockers, Layout)
 
 
 ## How many groups (colors) the game being started has: the level's, else the Settings value.

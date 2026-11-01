@@ -119,6 +119,11 @@ func BuildBoardSection(Section: VBoxContainer, Width: int, Height: int, Colors: 
 		BoardTypePicker.add_item(Name)
 	BoardTypePicker.item_selected.connect(func(Index: int) -> void: BoardTypeSelected.emit(Index))
 	AddRow(Section, "Board Type", BoardTypePicker)
+	LayoutPicker = OptionButton.new()
+	for Name in BoardLayouts.Names():
+		LayoutPicker.add_item(Name)
+	LayoutPicker.item_selected.connect(func(Index: int) -> void: LayoutSelected.emit(Index))
+	AddRow(Section, "Layout (2D board, gaps in the board)", LayoutPicker)
 	WidthField = AddFieldRow(Section, "Width", Width, WidthRange)
 	HeightField = AddFieldRow(Section, "Height", Height, WidthRange)
 	DepthField = AddFieldRow(Section, "Depth", Width, WidthRange)
@@ -127,9 +132,14 @@ func BuildBoardSection(Section: VBoxContainer, Width: int, Height: int, Colors: 
 	AddButtonRow(Section, "Start a new game with these", "New Game", OnSetPressed)
 
 
-## Shows the fields of the board type: the 2D board's width, height and Blockers, or the cube's width, height and depth.
-func ShowBoardType(Is3D: bool, Width: int, Height: int, Depth: int, Blockers: int) -> void:
+## Shows the fields of the board type: the 2D board's layout, width, height and Blockers, or the cube's width, height and depth. An
+## irregular layout brings its own width and height, so those fields are hidden while one is picked.
+func ShowBoardType(Is3D: bool, Width: int, Height: int, Depth: int, Blockers: int, Layout: int = 0) -> void:
 	BoardTypePicker.selected = 1 if Is3D else 0
+	LayoutPicker.selected = Layout
+	LayoutPicker.get_parent().visible = not Is3D
+	WidthField.get_parent().visible = Is3D or Layout == 0
+	HeightField.get_parent().visible = Is3D or Layout == 0
 	WidthField.value = Width
 	HeightField.value = Height
 	DepthField.value = Depth

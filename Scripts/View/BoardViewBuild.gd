@@ -4,7 +4,7 @@ extends BoardViewTurning
 ## Building the board: pieces, Blockers, joins, shape and veil.
 
 # MARK: Game lifecycle
-func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = []) -> void:
+func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = [], Gaps: Array[Vector3i] = []) -> void:
 	for Child in get_children():
 		Child.queue_free()
 	PieceNodes.clear()
@@ -19,7 +19,7 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers
 	PendingTweens = 0
 	InPlaceActive = 0
 	GameNumber += 1
-	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers)
+	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers, Gaps)
 	Hint.Clear()
 	MovingIds.clear()
 	Joins.Model = Model

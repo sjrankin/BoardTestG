@@ -25,6 +25,8 @@ var Dimensions := Vector3i(11, 11, 0)
 var PresetPieces: Array[Dictionary] = []
 ## Cells that hold a Blocker (2D boards only), same cell convention.
 var PresetBlockers: Array[Vector3i] = []
+## Cells that are not part of the board (an irregular layout, `BoardLayouts`), same cell convention. Empty for a rectangle.
+var PresetGaps: Array[Vector3i] = []
 ## Special pieces placed before play, each {Cell: Vector3i, Special: String}. The kinds are still to be decided.
 var PresetSpecials: Array[Dictionary] = []
 ## Set by the difficulty test (Settings > Level Difficulty): the mean number of turns a bot needed to reach the goal over its

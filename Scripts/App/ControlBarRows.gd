@@ -39,6 +39,9 @@ signal AttractSpinToggled(On: bool)
 ## 0 is the 2D board, 1 the 3D cube.
 signal BoardTypeSelected(Index: int)
 
+## An irregular 2D layout (or 0, the plain rectangle) was picked in Settings > Board > Layout.
+signal LayoutSelected(Index: int)
+
 signal BoardSetPressed(Width: int, Height: int, Depth: int, Colors: int, Blockers: int)
 
 signal RemovalSpeedChanged(Value: float)
@@ -150,6 +153,8 @@ var BlockersField: SpinBox
 var DepthField: SpinBox
 
 var BoardTypePicker: OptionButton
+
+var LayoutPicker: OptionButton
 
 var SpeedSlider: HSlider
 

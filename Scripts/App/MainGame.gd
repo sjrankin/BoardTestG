@@ -19,13 +19,32 @@ func StartGame() -> void:
 	if LevelIndex >= 0 and not Is3D:
 		var Level := Levels.All()[LevelIndex]
 		Session.Start(PlayMode, Level)
-		View.NewGame(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), Level.PresetBlockers)
+		View.NewGame(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), Level.PresetBlockers, Level.PresetGaps)
 		return
-	Session.Start(PlayMode, LevelDefinition.Default(Is3D, Dimensions3D if Is3D else Vector3i(Dimensions2D.x, Dimensions2D.y, 0)))
+	var LayoutName := CurrentLayoutName()
+	var Size2D := BoardLayouts.Size(LayoutName) if not LayoutName.is_empty() else Dimensions2D
+	Session.Start(PlayMode, LevelDefinition.Default(Is3D, Dimensions3D if Is3D else Vector3i(Size2D.x, Size2D.y, 0)))
 	if Is3D:
 		View.NewGame(Dimensions3D.x, Dimensions3D.y, Dimensions3D.z, Colors)
 	else:
-		View.NewGame(Dimensions2D.x, Dimensions2D.y, Colors, Blockers)
+		var NoBlockers: Array[Vector3i] = []
+		View.NewGame(Size2D.x, Size2D.y, Colors, Blockers, NoBlockers, BoardLayouts.Gaps(LayoutName))
+
+
+## The irregular layout of the 2D board set in Settings, or "" for the plain rectangle.
+func CurrentLayoutName() -> String:
+	if Layout <= 0:
+		return ""
+	return BoardLayouts.Names()[Layout]
+
+
+## Settings > Board > Layout: the 2D board plays the layout (index 0 is the plain rectangle) in a new game.
+func OnLayoutSelected(Index: int) -> void:
+	Layout = Index
+	GameSettings.Save("BoardLayout", Layout)
+	ClearLevel()
+	ShowBoardType()
+	StartGame()
 
 
 ## Switches between the 2D board and the 3D cube. The board left behind is taken out of the scene (with whatever was flying

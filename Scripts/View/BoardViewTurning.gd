@@ -22,7 +22,10 @@ const FallDuration := 0.35
 const LockedYaw := PI / 4.0
 
 ## Auto Rotate: the turn about the vertical per second, and how far (and how fast) the board rocks to and fro.
-const AutoYawRate := 0.3
+## A full turn takes 23.7 s: not a whole multiple of (or a simple fraction of) the Malicious light's 15 s, so the two never fall into step.
+const AutoYawPeriod := 23.7
+
+const AutoYawRate := TAU / AutoYawPeriod
 
 const AutoTiltSwing := 0.55
 

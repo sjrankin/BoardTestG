@@ -42,6 +42,11 @@ var GravityDir: Vector2i = Vector2i(0, 1)
 var Queue: Dictionary = {}
 ## Blockers[Col][Row] -> bool. Placed once; never moved by a shuffle or a redeal.
 var Blockers: Array = []
+## Gaps[Col][Row] -> bool. An irregular board: a gap is a cell that is not part of the board (nothing there, not even a Blocker). A gap
+## above the first real cell of a column (as gravity points) is open air that new pieces fall through; a gap with real cells above it
+## (the middle of a ring) is solid to falling pieces, like a Blocker.
+var Gaps: Array = []
+var GapCount: int = 0
 var NextId: int = 1
 ## Which side a piece tries first when it can go either way at a cell; flips each time it is used.
 var FlipToggles: Dictionary = {}
@@ -50,7 +55,7 @@ var Paths: Dictionary = {}
 var PathPieces: Dictionary = {}
 
 
-func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0, Preset: Array[Vector3i] = []) -> void:
+func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0, Preset: Array[Vector3i] = [], PresetGaps: Array[Vector3i] = []) -> void:
 	Width = maxi(NewWidth, 3)
 	Height = maxi(NewHeight, 3)
 	ColorCount = clampi(NewColorCount, 3, 8)
@@ -60,6 +65,7 @@ func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: i
 		Rng.seed = Seed
 	else:
 		Rng.randomize()
+	PlaceGaps(PresetGaps)
 	PlaceBlockers(Preset)
 	Deal()
 
@@ -84,6 +90,18 @@ func IsBlocker(Col: int, Row: int) -> bool:
 	if not InBoard(Col, Row):
 		return false
 	return Blockers[Col][Row]
+
+
+## Whether the cell is a gap (not part of an irregular board). Off the rectangle counts as a gap.
+func IsGap(Col: int, Row: int) -> bool:
+	if not InBoard(Col, Row):
+		return true
+	return Gaps[Col][Row]
+
+
+## Whether a piece can ever stand on the cell: on the board, not a gap and not a Blocker.
+func IsOpen(Col: int, Row: int) -> bool:
+	return InBoard(Col, Row) and not Gaps[Col][Row] and not Blockers[Col][Row]
 
 
 # MARK: Virtual cells (gravity always toward increasing VRow)
@@ -138,17 +156,41 @@ func VBlocker(VCol: int, VRow: int) -> bool:
 	return Blockers[Real.x][Real.y]
 
 
-## A cell a piece could move into right now: on the board or in the queue off it, not a Blocker, and empty.
+func VGap(VCol: int, VRow: int) -> bool:
+	if VCol < 0 or VCol >= VirtualWidth() or VRow < 0 or VRow >= VirtualHeight():
+		return false
+	var Real := ToReal(VCol, VRow)
+	return Gaps[Real.x][Real.y]
+
+
+## Whether a gap cell is open air: every cell above it in its column is a gap too, so pieces fall through it from the queue.
+func VAir(VCol: int, VRow: int) -> bool:
+	if not VGap(VCol, VRow):
+		return false
+	for K in range(0, VRow):
+		if not VGap(VCol, K):
+			return false
+	return true
+
+
+## Something a falling piece cannot enter or pass: a Blocker, or a gap with real cells above it.
+func VSolid(VCol: int, VRow: int) -> bool:
+	return VBlocker(VCol, VRow) or (VGap(VCol, VRow) and not VAir(VCol, VRow))
+
+
+## A cell a piece could move into right now: on the board or in the queue off it, not solid (a Blocker or a gap that is not open
+## air), and empty.
 func CanEnter(VCol: int, VRow: int) -> bool:
 	if not VInRange(VCol, VRow):
 		return false
-	return not VBlocker(VCol, VRow) and VGet(VCol, VRow) == null
+	return not VSolid(VCol, VRow) and VGet(VCol, VRow) == null
 
 
-## Whether a Blocker sits at or above `VRow` in the column, so nothing can ever be refilled into that cell from above.
+## Whether a Blocker (or a gap under real cells) sits at or above `VRow` in the column, so nothing can ever be refilled into that
+## cell from above.
 func ColumnSealed(VCol: int, VRow: int) -> bool:
 	for K in range(0, mini(VRow, VirtualHeight() - 1) + 1):
-		if VBlocker(VCol, K):
+		if VSolid(VCol, K):
 			return true
 	return false
 
@@ -174,6 +216,21 @@ func ClearCells() -> void:
 
 # MARK: Setup
 
+## Marks the gap cells (x = Col, y = Row) of an irregular board; none for an ordinary rectangle.
+func PlaceGaps(Preset: Array[Vector3i] = []) -> void:
+	Gaps = []
+	for Col in Width:
+		var Column: Array = []
+		Column.resize(Height)
+		Column.fill(false)
+		Gaps.append(Column)
+	GapCount = 0
+	for Cell in Preset:
+		if InBoard(Cell.x, Cell.y) and not Gaps[Cell.x][Cell.y]:
+			Gaps[Cell.x][Cell.y] = true
+			GapCount += 1
+
+
 ## Places up to `BlockerCount` Blockers at random, only where the remaining cells stay one connected region - or, when `Preset`
 ## is given, exactly on those cells (x = Col, y = Row; a level's).
 func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
@@ -185,7 +242,7 @@ func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 		Blockers.append(Column)
 	if not Preset.is_empty():
 		for Cell in Preset:
-			if InBoard(Cell.x, Cell.y):
+			if IsOpen(Cell.x, Cell.y):
 				Blockers[Cell.x][Cell.y] = true
 		BlockerCount = Preset.size()
 		return
@@ -195,7 +252,7 @@ func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 		Tries += 1
 		var Col := Rng.randi_range(0, Width - 1)
 		var Row := Rng.randi_range(0, Height - 1)
-		if Blockers[Col][Row]:
+		if Blockers[Col][Row] or Gaps[Col][Row]:
 			continue
 		Blockers[Col][Row] = true
 		if OpenCellsConnected():
@@ -233,7 +290,7 @@ func OpenCellsConnected() -> bool:
 	var OpenCount := 0
 	for Col in Width:
 		for Row in Height:
-			if not Blockers[Col][Row]:
+			if IsOpen(Col, Row):
 				OpenCount += 1
 				if Start.x < 0:
 					Start = Vector2i(Col, Row)
@@ -247,7 +304,7 @@ func OpenCellsConnected() -> bool:
 			var Next := Cell + Offset
 			if Next.x < 0 or Next.x >= Width or Next.y < 0 or Next.y >= Height:
 				continue
-			if Blockers[Next.x][Next.y] or Seen.has(Next):
+			if not IsOpen(Next.x, Next.y) or Seen.has(Next):
 				continue
 			Seen[Next] = true
 			Stack.append(Next)
@@ -267,7 +324,7 @@ func FillRandom() -> void:
 	ClearCells()
 	for Col in Width:
 		for Row in Height:
-			if not Blockers[Col][Row]:
+			if IsOpen(Col, Row):
 				SetPiece(Col, Row, NewPiece(RandomKind()))
 
 
@@ -275,7 +332,7 @@ func FillRandom() -> void:
 func ForceGroup() -> void:
 	for Row in Height:
 		for Col in range(0, Width - 2):
-			if Blockers[Col][Row] or Blockers[Col + 1][Row] or Blockers[Col + 2][Row]:
+			if not (IsOpen(Col, Row) and IsOpen(Col + 1, Row) and IsOpen(Col + 2, Row)):
 				continue
 			var Kind := RandomKind()
 			for Offset in 3:
@@ -391,15 +448,15 @@ func TryMove(Piece: PieceData, VCol: int, VRow: int) -> bool:
 	if CanEnter(VCol, VRow + 1):
 		MovePiece(Piece, Vector2i(VCol, VRow), Vector2i(VCol, VRow + 1))
 		return true
-	if VRow < 0:
+	if VRow < 0 or VGap(VCol, VRow):
 		return false
-	var BlockerBelow := VBlocker(VCol, VRow + 1)
+	var BlockerBelow := VSolid(VCol, VRow + 1)
 	var Key := Vector2i(VCol, VRow)
 	var Flip: bool = FlipToggles.get(Key, false)
 	var Sides: Array = [1, -1] if Flip else [-1, 1]
 	for Side in Sides:
 		var TargetCol: int = VCol + Side
-		if not CanEnter(TargetCol, VRow + 1):
+		if not CanEnter(TargetCol, VRow + 1) or VGap(TargetCol, VRow + 1):
 			continue
 		if BlockerBelow or ColumnSealed(TargetCol, VRow + 1):
 			FlipToggles[Key] = not Flip
@@ -430,7 +487,7 @@ func SpawnAbove() -> int:
 	for VCol in VirtualWidth():
 		var Needed := 0
 		for VRow in VirtualHeight():
-			if not ColumnSealed(VCol, VRow) and VGet(VCol, VRow) == null:
+			if not ColumnSealed(VCol, VRow) and not VGap(VCol, VRow) and VGet(VCol, VRow) == null:
 				Needed += 1
 		Needed = mini(Needed, Pad)
 		for Index in Needed:
@@ -452,6 +509,14 @@ func DiscardQueued() -> void:
 		Paths.erase(Piece.Id)
 		PathPieces.erase(Piece.Id)
 	Queue.clear()
+	# A piece that stopped in open air above a gap column's first real cell (that column was sent one piece too many) is dropped too.
+	for Col in Width:
+		for Row in Height:
+			var Stray: PieceData = Cells[Col][Row]
+			if Stray != null and Gaps[Col][Row]:
+				Paths.erase(Stray.Id)
+				PathPieces.erase(Stray.Id)
+				Cells[Col][Row] = null
 
 
 ## Closes every gap: existing pieces fall (toward `GravityDir`), new ones queue off the opposite edge and fall in, until
@@ -472,7 +537,23 @@ func Drop() -> Array:
 		for Cell in Paths[Id]:
 			RealPath.append(ToReal(Cell.x, Cell.y))
 		Result.append({"Piece": PathPieces[Id], "Path": RealPath})
+	if GapCount > 0:
+		Result.append_array(FillDeadCells())
 	return Result
+
+
+## Irregular boards only: an open cell nothing can ever fall or slide into (under a gap that is two or more cells wide, or beside
+## a gap and under a Blocker) would stay empty for good, so it gets a new piece where it is. Returns those pieces as moves with a
+## path that starts and ends on the cell (the view pops them in).
+func FillDeadCells() -> Array:
+	var Filled: Array = []
+	for Col in Width:
+		for Row in Height:
+			if IsOpen(Col, Row) and Cells[Col][Row] == null:
+				var Piece := NewPiece(RandomKind())
+				Cells[Col][Row] = Piece
+				Filled.append({"Piece": Piece, "Path": [Vector2i(Col, Row), Vector2i(Col, Row)]})
+	return Filled
 
 
 # MARK: No moves

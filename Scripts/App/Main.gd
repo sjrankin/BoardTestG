@@ -31,6 +31,7 @@ func _ready() -> void:
 	Colors = clampi(int(GameSettings.Load("Colors", DefaultColors)), 3, 8)
 	Blockers = clampi(int(GameSettings.Load("Blockers", DefaultBlockers)), 0, 20)
 	Dimensions2D = Vector2i(Width, Height)
+	Layout = clampi(int(GameSettings.Load("BoardLayout", 0)), 0, BoardLayouts.Names().size() - 1)
 	Dimensions3D = Vector3i(clampi(int(GameSettings.Load("CubeWidth", DefaultWidth)), 3, 15), clampi(int(GameSettings.Load("CubeHeight", DefaultHeight)), 3, 15), clampi(int(GameSettings.Load("CubeDepth", DefaultWidth)), 3, 15))
 	Is3D = false
 	LevelIndex = 0
@@ -42,6 +43,9 @@ func _ready() -> void:
 			LevelIndex = clampi(int(Argument.trim_prefix("--level=")) - 1, -1, Levels.Count() - 1)
 			Is3D = LevelIndex < 0 and Is3D
 			SkipTitle = true
+		elif Argument.begins_with("--layout="):
+			# Plays that irregular layout (by name, e.g. --layout=Ring) on the 2D board Settings, without saving the choice.
+			Layout = maxi(BoardLayouts.Names().find(Argument.trim_prefix("--layout=")), 0)
 		elif Argument.begins_with("--dims="):
 			var Parts := Argument.trim_prefix("--dims=").split("x")
 			if Parts.size() == 3:
@@ -92,6 +96,7 @@ func _ready() -> void:
 		else:
 			Bar.TestOverlay.visible = false)
 	Session.StateChanged.connect(OnSessionState)
+	Bar.LayoutSelected.connect(OnLayoutSelected)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
 	Bar.ShapeSelected.connect(OnShapeSelected)

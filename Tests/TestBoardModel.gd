@@ -26,7 +26,7 @@ func CountPieces(Model: BoardModel) -> int:
 func EveryFillableCellFull(Model: BoardModel) -> bool:
 	for VCol in Model.VirtualWidth():
 		for VRow in Model.VirtualHeight():
-			if Model.VBlocker(VCol, VRow):
+			if Model.VBlocker(VCol, VRow) or Model.VGap(VCol, VRow):
 				continue
 			if Model.VGet(VCol, VRow) == null and not Model.ColumnSealed(VCol, VRow):
 				return false
@@ -132,7 +132,43 @@ func TestBlockerColumn() -> void:
 	Check(Model.GetPiece(1, 3) != null, "a gap sealed under a Blocker is filled by a neighbor falling in diagonally")
 
 
+## Irregular boards: every layout is connected, gaps never hold a piece, and drops fill every cell that can be refilled, whichever
+## way gravity points. A cell nothing can reach (under a ring's hole) gets a new piece in place, so the board always ends full.
+func TestGaps() -> void:
+	for Name in BoardLayouts.Names().slice(1):
+		var Size := BoardLayouts.Size(Name)
+		var Gaps := BoardLayouts.Gaps(Name)
+		for Direction in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
+			for Blockers: int in [0, 2]:
+				var Tag := "%s, gravity %s, %d Blockers" % [Name, Direction, Blockers]
+				var Model := BoardModel.new(Size.x, Size.y, 5, Blockers, 9, [], Gaps)
+				Model.GravityDir = Direction
+				Check(Model.OpenCellsConnected(), "the open cells are connected (%s)" % Tag)
+				var Open: int = Size.x * Size.y - Gaps.size() - Blockers
+				Check(CountPieces(Model) == Open, "the deal fills every open cell (%s)" % Tag)
+				for Gap in Gaps:
+					Check(Model.IsGap(Gap.x, Gap.y) and Model.GetPiece(Gap.x, Gap.y) == null and not Model.IsBlocker(Gap.x, Gap.y), "gap cells stay empty (%s)" % Tag)
+				for Step in 40:
+					var Groups := Model.PlayableGroups()
+					if Groups.is_empty():
+						Model.Shuffle()
+						continue
+					var Picked: Array[Vector2i] = []
+					Picked.assign(Groups[Model.Rng.randi_range(0, Groups.size() - 1)])
+					Model.Remove(Picked)
+					for Move in Model.Drop():
+						var Path: Array = Move["Path"]
+						var Last: Vector2i = Path[Path.size() - 1]
+						Check(Model.GetPiece(Last.x, Last.y) == Move["Piece"] and not Model.IsGap(Last.x, Last.y), "a path ends on a real cell with its piece (%s)" % Tag)
+					Check(EveryFillableCellFull(Model), "every refillable cell is filled (%s step %d)" % [Tag, Step])
+					Check(Model.Queue.is_empty(), "nothing is left queued (%s)" % Tag)
+					for Gap in Gaps:
+						Check(Model.GetPiece(Gap.x, Gap.y) == null, "no piece rests in a gap (%s step %d)" % [Tag, Step])
+				Check(CountPieces(Model) == Open, "a gap board always ends full, even under a ring's hole (%s)" % Tag)
+
+
 func _init() -> void:
+	TestGaps()
 	TestGroups()
 	for Direction in [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]:
 		for Seed in [11, 22]:

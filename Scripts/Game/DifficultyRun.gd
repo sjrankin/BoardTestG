@@ -47,7 +47,7 @@ func Start() -> void:
 
 ## One game of `Level` by the bot: the turns it took to reach the goal (`TurnCap` if it never did).
 static func PlayOnce(Level: LevelDefinition) -> int:
-	var Model := BoardModel.new(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), 0, Level.PresetBlockers)
+	var Model := BoardModel.new(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), 0, Level.PresetBlockers, Level.PresetGaps)
 	var Remaining := {}
 	for Goal in Level.ColorGoals:
 		Remaining[Goal.x] = int(Remaining.get(Goal.x, 0)) + Goal.y
