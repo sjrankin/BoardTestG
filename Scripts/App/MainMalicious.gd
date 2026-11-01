@@ -67,7 +67,7 @@ func HideVeil() -> void:
 ## Malicious, once a frame: the spinning light and the veil's timing.
 func MaliciousStep(Delta: float) -> void:
 	if Malicious[0]:
-		LightAngle = fmod(LightAngle + TAU / LightPeriod * Delta, TAU)
+		LightAngle = fmod(LightAngle - TAU / LightPeriod * Delta, TAU)
 		SceneSetup.Sun.rotation = Vector3(deg_to_rad(SceneSetup.SunDirection.x), deg_to_rad(SceneSetup.SunDirection.y) + LightAngle, 0.0)
 	if Malicious[2] and Session.CanPlay() and not Bar.Overlay.visible and not Bar.TestOverlay.visible and not AttractGameOver:
 		VeilClock += Delta

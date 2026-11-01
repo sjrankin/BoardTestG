@@ -4,7 +4,7 @@ extends BoardViewTurning
 ## Building the board: pieces, Blockers, joins, shape and veil.
 
 # MARK: Game lifecycle
-func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = [], Gaps: Array[Vector3i] = []) -> void:
+func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers: Array[Vector3i] = [], Gaps: Array[Vector3i] = [], PresetPieces: Array[Dictionary] = [], NewFlow: FlowField = null) -> void:
 	for Child in get_children():
 		Child.queue_free()
 	PieceNodes.clear()
@@ -19,7 +19,7 @@ func NewGame(Width: int, Height: int, Colors: int, Blockers: int, PresetBlockers
 	PendingTweens = 0
 	InPlaceActive = 0
 	GameNumber += 1
-	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers, Gaps)
+	Model = BoardModel.new(Width, Height, Colors, Blockers, 0, PresetBlockers, Gaps, PresetPieces, NewFlow)
 	Hint.Clear()
 	MovingIds.clear()
 	Joins.Model = Model
@@ -120,7 +120,37 @@ func AddPieceNode(Piece: BoardModel.PieceData, At: Vector3) -> Node3D:
 	Node.position = At
 	add_child(Node)
 	PieceNodes[Piece.Id] = Node
+	if Piece.Count > 0:
+		AddCountLabel(Node, Piece.Count)
 	return Node
+
+
+## The number on a piece that has a countdown: white with a black outline, always facing the camera, in front of the piece.
+func AddCountLabel(Node: Node3D, Count: int) -> void:
+	var Label := Label3D.new()
+	Label.name = "CountLabel"
+	Label.text = str(Count)
+	Label.font_size = 96
+	Label.pixel_size = 0.0065
+	Label.outline_size = 24
+	Label.outline_modulate = Color.BLACK
+	Label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	Label.shaded = false
+	Label.double_sided = true
+	Label.no_depth_test = true
+	Label.render_priority = 5
+	Label.position = Vector3(0, 0, BlockStyles.BlockSize / 2.0 + 0.05)
+	Node.add_child(Label)
+
+
+## Shows a piece's new countdown.
+func UpdateCountLabel(Piece: BoardModel.PieceData) -> void:
+	var Node: Node3D = PieceNodes.get(Piece.Id)
+	if Node == null:
+		return
+	var Label := Node.get_node_or_null("CountLabel") as Label3D
+	if Label != null:
+		Label.text = str(Piece.Count)
 
 
 ## Recomputes the joins: after a shape change (so a new joined shape gets its joins, and a plain one loses them).

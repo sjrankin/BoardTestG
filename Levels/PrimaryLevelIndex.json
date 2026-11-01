@@ -1,0 +1,10 @@
+{
+	"Version": 1,
+	"Files": [
+		"Classic.json",
+		"Irregular.json",
+		"Countdown.json",
+		"Flows.json",
+		"GravityOffsets.json"
+	]
+}

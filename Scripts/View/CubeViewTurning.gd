@@ -12,10 +12,16 @@ signal ScoreChanged(NewScore: int)
 ## A tap removed a group of `Size` pieces of color `Kind`.
 signal GroupRemoved(Kind: int, Size: int)
 
+## Not used by the cube (it has no countdowns); `Main` connects the same signals on both boards.
+signal PiecesExpired(Kind: int, Size: int)
+
 signal BoardRebuilt
 
 ## Attract Mode only: after a drop no group of three or more is left to remove.
 signal NoPlayableGroups
+
+## True while "No More Moves, Reshuffling" is to be shown, just before a game's board is shuffled.
+var NoMovesNotice: bool = false
 
 const Pitch := BlockStyles.Pitch
 

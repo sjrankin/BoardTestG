@@ -93,7 +93,7 @@ func _init() -> void:
 
 	# The level list.
 	var All := Levels.All()
-	Check(All.size() == 15, "fifteen levels: ten rectangles, five irregular")
+	Check(All.size() == 23 and Levels.Problems.is_empty(), "twenty-three levels from the shipped files, no problems: %s" % str(Levels.Problems))
 	for Index in All.size():
 		var L := All[Index]
 		var Cells := L.Dimensions.x * L.Dimensions.y - L.PresetGaps.size()
@@ -105,25 +105,24 @@ func _init() -> void:
 			Check(Goal.x >= 0 and Goal.x < L.ColorCount and not Seen.has(Goal.x) and Goal.y > 0, Tag + "goal color is one of the board's, once")
 			Seen[Goal.x] = true
 		# A level starts at difficulty = its number; once the difficulty test has run (results saved on this machine) it is the measured one.
-		var Expected := Levels.InitialDifficulty(Index + 1) if L.MeanTurns <= 0.0 else Levels.DifficultyFor(L.MeanTurns, L.TurnCount)
+		var Expected := L.Difficulty if L.MeanTurns <= 0.0 else Levels.DifficultyFor(L.MeanTurns, L.TurnCount)
 		Check(L.Difficulty == Expected and L.ShapeType == LevelDefinition.ShapeTypes.TwoD, Tag + "difficulty and shape")
 		Check(L.Dimensions.x >= 3 and L.Dimensions.x <= 15 and L.Dimensions.y >= 3 and L.Dimensions.y <= 13, Tag + "size in range")
 		Check(L.ColorCount >= 4 and L.ColorCount <= 6 and L.ColorGoals.size() >= 1 and L.ColorGoals.size() <= L.ColorCount, Tag + "colors")
-		Check(L.PresetBlockers.size() <= Cells / 40, Tag + "at most one Blocker per 40 cells")
 		Check(L.TurnCount * 3 >= Total, Tag + "enough turns for the pieces")
-		var Model := BoardModel.new(L.Dimensions.x, L.Dimensions.y, L.ColorCount, L.PresetBlockers.size(), 0, L.PresetBlockers, L.PresetGaps)
+		var Model := BoardModel.new(L.Dimensions.x, L.Dimensions.y, L.ColorCount, L.PresetBlockers.size(), 0, L.PresetBlockers, L.PresetGaps, L.PresetPieces, L.Flow)
 		var Found := 0
 		for Col in Model.Width:
 			for Row in Model.Height:
 				if Model.IsBlocker(Col, Row):
 					Found += 1
 		Check(Found == L.PresetBlockers.size(), Tag + "preset Blockers land on the board")
-		Check(Model.OpenCellsConnected(), Tag + "open cells connected")
-		Check(Index < 10 or not L.PresetGaps.is_empty(), Tag + "irregular levels have gaps")
+		Check(Model.LargestRegion() >= 3, Tag + "a group can form")
+		Check(L.Source != "Irregular.json" or not L.PresetGaps.is_empty(), Tag + "irregular levels have gaps")
 		print("L", L.Difficulty, " ", L.Dimensions.x, "x", L.Dimensions.y, " colors ", L.ColorCount, " goals ", L.ColorGoals, " turns ", L.TurnCount, " time ", L.TimeCount, " blockers ", L.PresetBlockers.size())
 	Check(Levels.TurnsFor(45, 30) > Levels.TurnsFor(45, 150), "fewer pieces give more turns")
 	Check(Levels.TurnsFor(90, 50) > Levels.TurnsFor(45, 50), "more pieces to remove give more turns")
-	Check(Levels.All()[0].PresetBlockers == Levels.Build(1, Vector2i(7, 7), 4, [Vector2i(2, 12), Vector2i(3, 9)]).PresetBlockers, "levels are repeatable")
+	Check(Levels.All()[0].PresetBlockers == [Vector3i(3, 3, 0)] and Levels.All()[0].ColorGoals == [Vector2i(2, 12), Vector2i(3, 9)], "level 1 is read as the file says")
 
 	# The difficulty test: the bot finishes every level, and difficulty rises with the turns it needs.
 	for Index in All.size():

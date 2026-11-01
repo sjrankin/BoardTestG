@@ -59,12 +59,30 @@ func RecordRemoval(Kind: int, Size: int) -> void:
 		Remaining[Kind] = maxi(int(Remaining[Kind]) - Size, 0)
 	if Unlimited:
 		return
+	CheckGoal(true)
+
+
+## `Size` pieces of color `Kind` were removed by their own countdown reaching 0 (not by a tap): they count toward the goal like any
+## removed piece, but are not a turn and do not start the clock.
+func RecordExpired(Kind: int, Size: int) -> void:
+	if not CanPlay():
+		return
+	if Remaining.has(Kind):
+		Remaining[Kind] = maxi(int(Remaining[Kind]) - Size, 0)
+	if Unlimited:
+		return
+	CheckGoal(false)
+
+
+## Ends the game if the goal is met (Timed, Turn) or the turns have run out; `ByTap` is false after a countdown removal, which
+## cannot use up a turn.
+func CheckGoal(ByTap: bool) -> void:
 	if AllDone():
 		GoalMet = true
 		if Mode != GameMode.Kinds.Zen:
 			Finish(States.Won)
 			return
-	if Mode == GameMode.Kinds.Turn and Turns >= Level.TurnCount:
+	if ByTap and Mode == GameMode.Kinds.Turn and Turns >= Level.TurnCount:
 		Finish(States.Lost)
 
 

@@ -23,6 +23,7 @@ func _ready() -> void:
 		Board.BoardRebuilt.connect(FrameCamera)
 		Board.NoPlayableGroups.connect(OnNoPlayableGroups)
 		Board.GroupRemoved.connect(Session.RecordRemoval)
+		Board.PiecesExpired.connect(Session.RecordExpired)
 	add_child(Session)
 	PlayMode = clampi(int(GameSettings.Load("PlayMode", GameMode.Default)), 0, GameMode.Names.size() - 1) as GameMode.Kinds
 
@@ -97,6 +98,7 @@ func _ready() -> void:
 			Bar.TestOverlay.visible = false)
 	Session.StateChanged.connect(OnSessionState)
 	Bar.LayoutSelected.connect(OnLayoutSelected)
+	Bar.LevelsReloadPressed.connect(OnLevelsReloadPressed)
 	Bar.BoardTypeSelected.connect(func(Index: int) -> void: SwitchBoardType(Index == 1))
 	Bar.AttractSpinToggled.connect(OnAttractSpinToggled)
 	Bar.ShapeSelected.connect(OnShapeSelected)
@@ -215,10 +217,10 @@ func _process(Delta: float) -> void:
 	Bar.PlayButton.visible = Bar.AttractCheck.button_pressed and not Bar.Overlay.visible and not Bar.TestOverlay.visible
 	Bar.Readouts.visible = not Bar.AttractCheck.button_pressed
 	Bar.NextButton.visible = Session.GoalMet and Session.CanPlay() and not Advancing and not Bar.AttractCheck.button_pressed and not Bar.Overlay.visible and not Bar.TestOverlay.visible
-	Bar.SetLevel("Level %d" % (LevelIndex + 1) if LevelIndex >= 0 and not Is3D else "")
+	Bar.SetLevel(Levels.All()[LevelIndex].Name if LevelIndex >= 0 and not Is3D else "")
 	Bar.SetGoals(Session.Remaining, Session.GoalOrder, BlockStyles.Palette)
 	Board2D.Hint.WantedKinds = Session.WantedKinds()
-	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), "Game over" if AttractGameOver else Session.StatusText())
+	Bar.SetGame(Session.ClockTitle(), Session.ClockText(), "Game over" if AttractGameOver else ("No More Moves, Reshuffling" if View.NoMovesNotice else Session.StatusText()))
 	View.UserDown = -CameraNode.global_basis.y
 	View.AttractActive = Bar.AttractCheck.button_pressed
 	Bar.SetFps(int(Engine.get_frames_per_second()))

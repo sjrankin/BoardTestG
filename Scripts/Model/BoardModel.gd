@@ -19,11 +19,16 @@ const MaxDealAttempts := 200
 class PieceData:
 	extends RefCounted
 	var Id: int
+	## The piece's group (its color).
 	var Kind: int
+	## A countdown (levels only): every time a group touching the piece along a side is removed it goes down by one, and the piece
+	## is removed itself when it reaches 0. 0 means the piece has no countdown. (Blockers are not pieces and never count down.)
+	var Count: int = 0
 
-	func _init(NewId: int, NewKind: int) -> void:
+	func _init(NewId: int, NewKind: int, NewCount: int = 0) -> void:
 		Id = NewId
 		Kind = NewKind
+		Count = maxi(NewCount, 0)
 
 
 var Width: int
@@ -47,6 +52,15 @@ var Blockers: Array = []
 ## (the middle of a ring) is solid to falling pieces, like a Blocker.
 var Gaps: Array = []
 var GapCount: int = 0
+## A level's own flow (see `FlowField`): which way pieces move in each cell, and where a cell can send them to instead of a neighbour.
+## null = the ordinary board, where every column falls with gravity and new pieces come in from the top edge.
+var Flow: FlowField = null
+## Pieces a level places itself, each {Cell: Vector3i (x = Col, y = Row), Kind: int, Count: int}; the rest of the open cells get random ones.
+var PresetPieces: Array[Dictionary] = []
+## What the last `Remove` did besides taking the group off: [{Cell, Piece}] for the pieces whose countdown reached 0 (they are off the
+## board too) and for those whose countdown only went down by one.
+var LastExpired: Array = []
+var LastTicked: Array = []
 var NextId: int = 1
 ## Which side a piece tries first when it can go either way at a cell; flips each time it is used.
 var FlipToggles: Dictionary = {}
@@ -55,7 +69,7 @@ var Paths: Dictionary = {}
 var PathPieces: Dictionary = {}
 
 
-func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0, Preset: Array[Vector3i] = [], PresetGaps: Array[Vector3i] = []) -> void:
+func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: int, Seed: int = 0, Preset: Array[Vector3i] = [], PresetGaps: Array[Vector3i] = [], NewPresetPieces: Array[Dictionary] = [], NewFlow: FlowField = null) -> void:
 	Width = maxi(NewWidth, 3)
 	Height = maxi(NewHeight, 3)
 	ColorCount = clampi(NewColorCount, 3, 8)
@@ -65,6 +79,8 @@ func _init(NewWidth: int, NewHeight: int, NewColorCount: int, NewBlockerCount: i
 		Rng.seed = Seed
 	else:
 		Rng.randomize()
+	PresetPieces = NewPresetPieces
+	Flow = NewFlow
 	PlaceGaps(PresetGaps)
 	PlaceBlockers(Preset)
 	Deal()
@@ -195,8 +211,8 @@ func ColumnSealed(VCol: int, VRow: int) -> bool:
 	return false
 
 
-func NewPiece(Kind: int) -> PieceData:
-	var Piece := PieceData.new(NextId, Kind)
+func NewPiece(Kind: int, Count: int = 0) -> PieceData:
+	var Piece := PieceData.new(NextId, Kind, Count)
 	NextId += 1
 	return Piece
 
@@ -246,6 +262,8 @@ func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 				Blockers[Cell.x][Cell.y] = true
 		BlockerCount = Preset.size()
 		return
+	# Random Blockers never cut an area of play in two (a board that is already in several areas stays in as many).
+	var BaseRegions := RegionCount()
 	var Placed := 0
 	var Tries := 0
 	while Placed < BlockerCount and Tries < 500:
@@ -255,13 +273,13 @@ func PlaceBlockers(Preset: Array[Vector3i] = []) -> void:
 		if Blockers[Col][Row] or Gaps[Col][Row]:
 			continue
 		Blockers[Col][Row] = true
-		if OpenCellsConnected():
+		if RegionCount() <= BaseRegions:
 			Placed += 1
 		else:
 			Blockers[Col][Row] = false
 
 
-## Malicious: puts the Blockers somewhere else (the same number, at random, with the open cells still connected). A piece on a cell
+## Malicious: puts the Blockers somewhere else (the same number, at random, without cutting an area of play in two). A piece on a cell
 ## that is now a Blocker is taken off the board; the cells the Blockers left are empty, so the next `Drop` fills them. Returns
 ## {Old: [cells], New: [cells], Gone: [{Cell, Piece}]}.
 func RelocateBlockers() -> Dictionary:
@@ -285,30 +303,47 @@ func RelocateBlockers() -> Dictionary:
 	return {"Old": Old, "New": New, "Gone": Gone}
 
 
-func OpenCellsConnected() -> bool:
-	var Start := Vector2i(-1, -1)
-	var OpenCount := 0
+## How many separate areas of play there are: groups of open cells that touch along a side. A map may have several (gaps in the middle,
+## islands apart from each other); one is the ordinary board.
+func RegionCount() -> int:
+	return Regions().size()
+
+
+## The size of the biggest area of play (a group of three can only form inside one area).
+func LargestRegion() -> int:
+	var Best := 0
+	for Size in Regions():
+		Best = maxi(Best, Size)
+	return Best
+
+
+## The sizes of the areas of play.
+func Regions() -> Array[int]:
+	var Sizes: Array[int] = []
+	var Seen := {}
 	for Col in Width:
 		for Row in Height:
-			if IsOpen(Col, Row):
-				OpenCount += 1
-				if Start.x < 0:
-					Start = Vector2i(Col, Row)
-	if OpenCount == 0:
-		return false
-	var Seen := {Start: true}
-	var Stack: Array[Vector2i] = [Start]
-	while not Stack.is_empty():
-		var Cell: Vector2i = Stack.pop_back()
-		for Offset in Neighbors:
-			var Next := Cell + Offset
-			if Next.x < 0 or Next.x >= Width or Next.y < 0 or Next.y >= Height:
+			var Start := Vector2i(Col, Row)
+			if not IsOpen(Col, Row) or Seen.has(Start):
 				continue
-			if not IsOpen(Next.x, Next.y) or Seen.has(Next):
-				continue
-			Seen[Next] = true
-			Stack.append(Next)
-	return Seen.size() == OpenCount
+			Seen[Start] = true
+			var Size := 0
+			var Stack: Array[Vector2i] = [Start]
+			while not Stack.is_empty():
+				var Cell: Vector2i = Stack.pop_back()
+				Size += 1
+				for Offset in Neighbors:
+					var Next := Cell + Offset
+					if IsOpen(Next.x, Next.y) and not Seen.has(Next):
+						Seen[Next] = true
+						Stack.append(Next)
+			Sizes.append(Size)
+	return Sizes
+
+
+## Whether the open cells make one area.
+func OpenCellsConnected() -> bool:
+	return RegionCount() == 1
 
 
 ## Fills every open cell with a random piece, retrying until the deal has at least one playable group.
@@ -326,6 +361,10 @@ func FillRandom() -> void:
 		for Row in Height:
 			if IsOpen(Col, Row):
 				SetPiece(Col, Row, NewPiece(RandomKind()))
+	for Preset in PresetPieces:
+		var Cell: Vector3i = Preset["Cell"]
+		if IsOpen(Cell.x, Cell.y):
+			SetPiece(Cell.x, Cell.y, NewPiece(clampi(int(Preset["Kind"]), 0, ColorCount - 1), int(Preset.get("Count", 0))))
 
 
 ## Last resort for a board too small or too blocked for a random deal to contain a group: paint three in a row.
@@ -414,6 +453,8 @@ func HasPlayableGroup() -> bool:
 ## Clears a group (3+ pieces only). Returns [{Cell, Piece}] for each piece taken off, or [] if it was too small.
 func Remove(Group: Array[Vector2i]) -> Array:
 	var Removed: Array = []
+	LastExpired = []
+	LastTicked = []
 	if Group.size() < MinimumGroupSize:
 		return Removed
 	for Cell in Group:
@@ -423,7 +464,32 @@ func Remove(Group: Array[Vector2i]) -> Array:
 		Removed.append({"Cell": Cell, "Piece": Piece})
 		SetPiece(Cell.x, Cell.y, null)
 	Score += Removed.size()
+	CountDown(Removed)
 	return Removed
+
+
+## A group has just gone: every piece with a countdown that touches it along a side goes down by one (once, however many of the
+## group's pieces it touches), and one that reaches 0 is taken off the board too. Fills `LastExpired` and `LastTicked`. Expired
+## pieces do not count down their own neighbours.
+func CountDown(Removed: Array) -> void:
+	LastExpired = []
+	LastTicked = []
+	var Seen := {}
+	for Entry in Removed:
+		for Offset in Neighbors:
+			var Next: Vector2i = Entry["Cell"] + Offset
+			if Seen.has(Next):
+				continue
+			var Piece := GetPiece(Next.x, Next.y)
+			if Piece == null or Piece.Count <= 0:
+				continue
+			Seen[Next] = true
+			Piece.Count -= 1
+			if Piece.Count <= 0:
+				SetPiece(Next.x, Next.y, null)
+				LastExpired.append({"Cell": Next, "Piece": Piece})
+			else:
+				LastTicked.append({"Cell": Next, "Piece": Piece})
 
 
 # MARK: Gravity and refill
@@ -523,6 +589,8 @@ func DiscardQueued() -> void:
 ## nothing more moves. Returns [{Piece, Path: Array[Vector2i]}] for every piece that moved or was created, with the path
 ## in real cells - a new piece's path starts just off the board.
 func Drop() -> Array:
+	if Flow != null:
+		return Flow.Drop(self)
 	Paths.clear()
 	PathPieces.clear()
 	for Round in MaxRounds:

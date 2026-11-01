@@ -39,6 +39,9 @@ signal AttractSpinToggled(On: bool)
 ## 0 is the 2D board, 1 the 3D cube.
 signal BoardTypeSelected(Index: int)
 
+## Settings > Game > "Read the level files again".
+signal LevelsReloadPressed
+
 ## An irregular 2D layout (or 0, the plain rectangle) was picked in Settings > Board > Layout.
 signal LayoutSelected(Index: int)
 
@@ -155,6 +158,13 @@ var DepthField: SpinBox
 var BoardTypePicker: OptionButton
 
 var LayoutPicker: OptionButton
+
+## Settings > Game: play with the player's own piece shape / removal effect even when a level names one.
+var OverrideShapeCheck: Button
+
+var OverrideEffectCheck: Button
+
+var LevelFilesLabel: Label
 
 var SpeedSlider: HSlider
 

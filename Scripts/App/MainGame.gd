@@ -19,8 +19,10 @@ func StartGame() -> void:
 	if LevelIndex >= 0 and not Is3D:
 		var Level := Levels.All()[LevelIndex]
 		Session.Start(PlayMode, Level)
-		View.NewGame(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), Level.PresetBlockers, Level.PresetGaps)
+		ApplyLevelLook(Level)
+		View.NewGame(Level.Dimensions.x, Level.Dimensions.y, Level.ColorCount, Level.PresetBlockers.size(), Level.PresetBlockers, Level.PresetGaps, Level.PresetPieces, Level.Flow)
 		return
+	ApplyLevelLook(null)
 	var LayoutName := CurrentLayoutName()
 	var Size2D := BoardLayouts.Size(LayoutName) if not LayoutName.is_empty() else Dimensions2D
 	Session.Start(PlayMode, LevelDefinition.Default(Is3D, Dimensions3D if Is3D else Vector3i(Size2D.x, Size2D.y, 0)))
@@ -29,6 +31,31 @@ func StartGame() -> void:
 	else:
 		var NoBlockers: Array[Vector3i] = []
 		View.NewGame(Size2D.x, Size2D.y, Colors, Blockers, NoBlockers, BoardLayouts.Gaps(LayoutName))
+
+
+## The piece shape and removal effect a game is played with: the level's own, if it names one and the player has not turned on the
+## override for it in Settings > Game, else the player's choice in Settings (which is what `null` - no level - gets). The pickers show the
+## player's choice either way, and nothing here is saved.
+func ApplyLevelLook(Level: LevelDefinition) -> void:
+	var Shape := Bar.ShapePicker.selected
+	if Level != null and Level.Shape >= 0 and not Bar.OverrideShapeCheck.button_pressed:
+		Shape = Level.Shape
+	if Shape != View.Styles.CurrentShape:
+		View.SetBlockShape(Shape)
+	var Effect := Bar.RemovalEffectPicker.selected
+	if Level != null and Level.RemovalEffect >= 0 and not Bar.OverrideEffectCheck.button_pressed:
+		Effect = Level.RemovalEffect
+	Both("RemovalEffect", Effect)
+
+
+## Settings > Game > "Read the level files again": the levels are read from the files once more and the Level list is refilled.
+func OnLevelsReloadPressed() -> void:
+	Levels.Reload()
+	Bar.FillLevelPicker()
+	if LevelIndex >= Levels.Count():
+		ClearLevel()
+	Bar.LevelPicker.selected = LevelIndex + 1
+	Bar.ShowLevelProblems()
 
 
 ## The irregular layout of the 2D board set in Settings, or "" for the plain rectangle.

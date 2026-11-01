@@ -11,10 +11,16 @@ signal ScoreChanged(NewScore: int)
 ## A tap removed a group of `Size` pieces of color `Kind`.
 signal GroupRemoved(Kind: int, Size: int)
 
+## Pieces of color `Kind` were removed because their countdown reached 0 (`Size` of them); not a turn.
+signal PiecesExpired(Kind: int, Size: int)
+
 signal BoardRebuilt
 
 ## Attract Mode only: after a drop no group of three or more is left to remove.
 signal NoPlayableGroups
+
+## True while "No More Moves, Reshuffling" is to be shown, just before a game's board is shuffled.
+var NoMovesNotice: bool = false
 
 const FallDuration := 0.35
 

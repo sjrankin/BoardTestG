@@ -5,6 +5,16 @@ extends RefCounted
 
 enum ShapeTypes { TwoD, ThreeD }
 
+## Where the level came from: its `Id` (unique; the difficulty test's results are kept under it), its name as the Settings list and the
+## top of the screen show it, and the level file it was read from ("" for `Default`).
+var Id: String = ""
+var Name: String = ""
+var Source: String = ""
+## The piece shape (an index into `BlockStyles.Shapes`) and removal effect (an index into `BoardView.RemovalEffects`) the level asks for,
+## or -1 for none. The player's Settings override these when "Override the level's shape / removal effect" is on.
+var Shape: int = -1
+var RemovalEffect: int = -1
+
 const MinDifficulty := 1
 const MaxDifficulty := 10
 const DefaultRedPieces := 45
@@ -20,13 +30,15 @@ var Difficulty: int = MinDifficulty:
 var ShapeType: ShapeTypes = ShapeTypes.TwoD
 ## Width, Height, Depth. Depth is 0 for a 2D board.
 var Dimensions := Vector3i(11, 11, 0)
-## Pieces placed before play, each {Cell: Vector3i, Kind: int} (a 2D board uses Cell.x = Col, Cell.y = Row, Cell.z = 0).
-## Cells not listed are filled at random.
+## Pieces placed before play, each {Cell: Vector3i, Kind: int, Count: int} (a 2D board uses Cell.x = Col, Cell.y = Row, Cell.z = 0;
+## Count is the piece's countdown, 0 = none). Cells not listed are filled at random.
 var PresetPieces: Array[Dictionary] = []
 ## Cells that hold a Blocker (2D boards only), same cell convention.
 var PresetBlockers: Array[Vector3i] = []
 ## Cells that are not part of the board (an irregular layout, `BoardLayouts`), same cell convention. Empty for a rectangle.
 var PresetGaps: Array[Vector3i] = []
+## The level's own flow of pieces (`FlowField`), or null for the ordinary board where every column falls with gravity.
+var Flow: FlowField = null
 ## Special pieces placed before play, each {Cell: Vector3i, Special: String}. The kinds are still to be decided.
 var PresetSpecials: Array[Dictionary] = []
 ## Set by the difficulty test (Settings > Level Difficulty): the mean number of turns a bot needed to reach the goal over its

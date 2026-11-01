@@ -1,0 +1,58 @@
+{
+	"Version": 1,
+	"Name": "Countdown",
+	"Levels": [
+		{
+			"Id": "Countdown 1",
+			"Name": "Fuse",
+			"Difficulty": 3,
+			"Colors": 4,
+			"Goals": [
+				{ "Group": 0, "Remove": 12 },
+				{ "Group": 2, "Remove": 9 }
+			],
+			"Shape": "Rounded Cube",
+			"Legend": {
+				"a": { "Group": 1, "Count": 3 },
+				"b": { "Count": 2 }
+			},
+			"Map": [
+				"#######",
+				"#a###a#",
+				"#######",
+				"###B###",
+				"#######",
+				"#b###b#",
+				"#######"
+			]
+		},
+		{
+			"Id": "Countdown 2",
+			"Name": "Ring of Fuses",
+			"Difficulty": 5,
+			"Colors": 5,
+			"Goals": [
+				{ "Group": 3, "Remove": 15 },
+				{ "Group": 4, "Remove": 12 }
+			],
+			"Turns": 30,
+			"Shape": "Sphere",
+			"RemovalEffect": "Puff of Smoke",
+			"Legend": {
+				"f": { "Group": 2, "Count": 4 },
+				"g": { "Group": 0, "Count": 2 }
+			},
+			"Map": [
+				"..#####..",
+				".#######.",
+				"###fgf###",
+				"###...###",
+				"###B.B###",
+				"###...###",
+				"###gfg###",
+				".#######.",
+				"..#####.."
+			]
+		}
+	]
+}

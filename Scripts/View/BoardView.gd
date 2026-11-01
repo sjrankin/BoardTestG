@@ -89,10 +89,20 @@ func FinishDrop() -> void:
 	if AttractActive:
 		NoPlayableGroups.emit()
 		return
-	Recover()
+	AnnounceReshuffle()
 
 
 # MARK: Shuffling
+
+## No group left in a game: "No More Moves, Reshuffling" shows for a second (the board stays busy), then the shuffle happens.
+func AnnounceReshuffle() -> void:
+	NoMovesNotice = true
+	var Shown := Model
+	await get_tree().create_timer(1.0).timeout
+	NoMovesNotice = false
+	if Model == Shown and Model != null:
+		Recover()
+
 
 ## No group of three left: shuffle what is there (up to three tries), then deal again.
 func Recover() -> void:

@@ -64,10 +64,25 @@ func TapCell(Col: int, Row: int) -> void:
 		if Node != null:
 			Leaving.append({"Node": Node, "Kind": Piece.Kind})
 			Joins.Strip(Node)
+	# Pieces whose countdown reached 0 leave with the group's effect (but without the lightning); the others show their new number.
+	var Expiring: Array[Dictionary] = []
+	for Entry in Model.LastExpired:
+		var Piece: BoardModel.PieceData = Entry["Piece"]
+		var Node: Node3D = PieceNodes.get(Piece.Id)
+		PieceNodes.erase(Piece.Id)
+		PiecesExpired.emit(Piece.Kind, 1)
+		if Node != null:
+			Expiring.append({"Node": Node, "Kind": Piece.Kind})
+			Joins.Strip(Node)
+	for Entry in Model.LastTicked:
+		UpdateCountLabel(Entry["Piece"])
 	# Whatever was joined to a removed piece is on its own again at once.
 	Joins.Update(MovingIds)
+	var Game := GameNumber
 	if LightningEnabled and not Leaving.is_empty():
 		await CrackleLightning(Leaving)
+	if Game == GameNumber:
+		Leaving.append_array(Expiring)
 	SendFlying(Leaving)
 
 

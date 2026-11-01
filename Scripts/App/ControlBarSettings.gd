@@ -93,13 +93,22 @@ func BuildGameSection(Section: VBoxContainer) -> void:
 		GameModeSelected.emit(Index))
 	AddRow(Section, "Play Mode (starts a new game)", GameModePicker)
 	LevelPicker = OptionButton.new()
-	LevelPicker.add_item("None (Board settings)")
-	for Index in Levels.Count():
-		LevelPicker.add_item("Level %d" % (Index + 1))
+	FillLevelPicker()
 	LevelPicker.item_selected.connect(func(Index: int) -> void:
 		CloseSettings()
 		LevelSelected.emit(Index))
 	AddRow(Section, "Level (2D board, starts a new game)", LevelPicker)
+	OverrideShapeCheck = AddCheckRow(Section, "Use my Block Shape, not the level's", false)
+	OverrideEffectCheck = AddCheckRow(Section, "Use my Removal Effect, not the level's", false)
+	AddButtonRow(Section, "Read the level files again (after editing them)", "Reload Levels", func() -> void:
+		LevelsReloadPressed.emit())
+	AddButtonRow(Section, "Copy the built-in level files to the Levels folder so they can be edited", "Copy Levels", func() -> void:
+		LevelFilesLabel.text = "Levels folder: " + Levels.ExportBuiltIn() + " (it is used instead of the built-in files once it has a PrimaryLevelIndex.json)")
+	LevelFilesLabel = Label.new()
+	LevelFilesLabel.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	LevelFilesLabel.add_theme_font_size_override("font_size", 18)
+	Section.add_child(LevelFilesLabel)
+	ShowLevelProblems()
 	AddButtonRow(Section, "Shuffle the pieces", "Shuffle", func() -> void:
 		CloseSettings()
 		ShufflePressed.emit())
@@ -111,6 +120,22 @@ func BuildGameSection(Section: VBoxContainer) -> void:
 	AddButtonRow(Section, "Turn the board back to face you", "Recenter", func() -> void:
 		CloseSettings()
 		RecenterPressed.emit())
+
+
+## Fills the Level list from `Levels.All()` (the first entry plays the Settings board).
+func FillLevelPicker() -> void:
+	LevelPicker.clear()
+	LevelPicker.add_item("None (Board settings)")
+	for Level in Levels.All():
+		LevelPicker.add_item(Level.Name)
+
+
+## Shows how many levels were read and, if a file had problems, the first of them.
+func ShowLevelProblems() -> void:
+	var Text := "%d levels from %s" % [Levels.Count(), Levels.Directory]
+	if not Levels.Problems.is_empty():
+		Text += "\n%d problem(s); first: %s" % [Levels.Problems.size(), Levels.Problems[0]]
+	LevelFilesLabel.text = Text
 
 
 func BuildBoardSection(Section: VBoxContainer, Width: int, Height: int, Colors: int, Blockers: int) -> void:

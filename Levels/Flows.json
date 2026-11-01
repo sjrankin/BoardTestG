@@ -1,0 +1,82 @@
+{
+	"Version": 1,
+	"Name": "Flows",
+	"Levels": [
+		{
+			"Id": "Flows 1",
+			"Name": "Updraft",
+			"Difficulty": 4,
+			"Colors": 4,
+			"Goals": [
+				{ "Group": 1, "Remove": 15 },
+				{ "Group": 3, "Remove": 12 }
+			],
+			"Map": [
+				"#######",
+				"#######",
+				"##...##",
+				"##...##",
+				"#######",
+				"#######",
+				"#######"
+			],
+			"Flow": [
+				"^^^vvvv",
+				"^^^vvvv",
+				"^^^vvvv",
+				"^^^vvvv",
+				"^^^vvvv",
+				"^^^vvvv",
+				"^^^vvvv"
+			]
+		},
+		{
+			"Id": "Flows 2",
+			"Name": "Islands",
+			"Difficulty": 3,
+			"Colors": 4,
+			"Goals": [
+				{ "Group": 0, "Remove": 18 },
+				{ "Group": 2, "Remove": 15 }
+			],
+			"Shape": "Sphere",
+			"Map": [
+				"####.....####",
+				"####.....####",
+				"####.###.####",
+				"####.###.####",
+				"####.###.####",
+				"####.....####",
+				"####.....####"
+			]
+		},
+		{
+			"Id": "Flows 3",
+			"Name": "Wormholes",
+			"Difficulty": 6,
+			"Colors": 5,
+			"Goals": [
+				{ "Group": 4, "Remove": 15 },
+				{ "Group": 1, "Remove": 15 }
+			],
+			"Map": [
+				"#########",
+				"#########",
+				"####B####",
+				"#########",
+				"#########"
+			],
+			"Flow": [
+				"vvvv^vvvv",
+				"vvvv^vvvv",
+				"vvvv^vvvv",
+				"vvvv^vvvv",
+				"vvvv^vvvv"
+			],
+			"Links": [
+				{ "From": [0, 4], "To": [8, 0] },
+				{ "From": [1, 4], "To": [7, 0] }
+			]
+		}
+	]
+}
