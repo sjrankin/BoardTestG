@@ -74,7 +74,7 @@ func AnimateMove(Piece: BoardModel.PieceData, Path: Array, Speed: float) -> void
 
 func OnMoveFinished(Id: int) -> void:
 	MovingIds.erase(Id)
-	Joins.Update(MovingIds)
+	RequestJoins()
 	PendingTweens -= 1
 	if PendingTweens <= 0:
 		PendingTweens = 0
@@ -168,6 +168,20 @@ func AnimateShuffle(Moves: Array) -> void:
 		MovingIds.clear()
 		Joins.Update(MovingIds)
 		Busy = false
+
+
+## Brings the joins up to date once at the end of this frame, however many pieces landed in it (each update walks the whole board).
+func RequestJoins() -> void:
+	if JoinsQueued:
+		return
+	JoinsQueued = true
+	call_deferred("RunQueuedJoins")
+
+
+func RunQueuedJoins() -> void:
+	JoinsQueued = false
+	if Model != null:
+		Joins.Update(MovingIds)
 
 
 func ShuffleStep(Progress: float, Node: Node3D, Start: Vector3, End: Vector3, Axis: Vector3) -> void:

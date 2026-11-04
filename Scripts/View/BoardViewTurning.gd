@@ -78,7 +78,7 @@ var LightningEnabled: bool = true
 ## flat shards, much faster), one of the three that play in place (`InPlaceRemoval`): Disappear, Spin and Shrink, Spin then Vanish, or
 ## Smoke (gone at once in a puff of smoke, `SmokeBurst`, which lasts as long as Explode's shards; also used when the board is dealt again).
 ## (New ones go on the end, so a remembered choice keeps meaning the same thing.) Set from the controls.
-enum RemovalEffects { FlyAway, MiniMe, Explode, Disappear, SpinShrink, SpinVanish, Smoke }
+enum RemovalEffects { FlyAway, MiniMe, Explode, Disappear, SpinShrink, SpinVanish, Smoke, GlowingHot }
 
 var RemovalEffect: int = RemovalEffects.FlyAway
 
@@ -97,6 +97,8 @@ var Hint := IdleHint.new()
 var Joins := JoinSystem.new()
 
 var MovingIds: Dictionary = {}
+## True while a join update is queued for the end of the frame (see `RequestJoins`).
+var JoinsQueued := false
 
 var AttractActive: bool = false
 

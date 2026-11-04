@@ -128,6 +128,8 @@ var PieceNodes: Dictionary = {}
 var Joins := CubeJoins.new()
 
 var MovingIds: Dictionary = {}
+## True while a join update is queued for the end of the frame (see `RequestJoins`).
+var JoinsQueued := false
 
 var WaitingForVacate: bool = false
 

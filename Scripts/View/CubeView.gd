@@ -95,11 +95,26 @@ func AnimateMove(Piece: BoardModel.PieceData, Points: Array[Vector3], Speed: flo
 
 func OnMoveFinished(Id: int) -> void:
 	MovingIds.erase(Id)
-	Joins.Update(MovingIds)
+	RequestJoins()
 	PendingTweens -= 1
 	if PendingTweens <= 0:
 		PendingTweens = 0
 		FinishDrop()
+
+
+## Brings the joins up to date once at the end of this frame. A join update walks every surface cell, and many pieces land in the
+## same frame, so one update per landing piece (hundreds of cells each, on a big cube) made the game crawl, a debug build especially.
+func RequestJoins() -> void:
+	if JoinsQueued:
+		return
+	JoinsQueued = true
+	call_deferred("RunQueuedJoins")
+
+
+func RunQueuedJoins() -> void:
+	JoinsQueued = false
+	if Model != null:
+		Joins.Update(MovingIds)
 
 
 func FinishDrop() -> void:

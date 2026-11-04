@@ -87,7 +87,7 @@ const FrameRateLimits: Array[int] = [30, 60, 120, 0]
 
 const GearSize := 64.0
 
-const RemovalEffectNames: Array[String] = ["Fly Away", "Mini Me", "Explode", "Disappear", "Spin and Shrink", "Spin then Vanish", "Puff of Smoke"]
+const RemovalEffectNames: Array[String] = ["Fly Away", "Mini Me", "Explode", "Disappear", "Spin and Shrink", "Spin then Vanish", "Puff of Smoke", "Glowing Hot"]
 
 const EdgeMargin := 14.0
 

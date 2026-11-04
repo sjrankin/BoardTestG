@@ -51,7 +51,7 @@ an unplayable map) drops that level, is printed to the console and is counted un
 | `Goals` | Required. Each `{ "Group": color, "Remove": pieces }`; groups are numbered as the colors are: 0 red, 1 green, 2 blue, 3 cyan, 4 yellow, 5 magenta. |
 | `Turns` / `Time` | Turns allowed in Turn mode, seconds in Timed mode. Left out, they are worked out from the goal and the board size. |
 | `Shape` | Optional piece shape by name (Cube, Sphere, Cone, Cylinder, Glow, Rounded Cube, Joined Cubes, Joined Spheres, Joined Cylinders, Joined Glow). |
-| `RemovalEffect` | Optional: Fly Away, Mini Me, Explode, Disappear, Spin and Shrink, Spin then Vanish, Puff of Smoke. |
+| `RemovalEffect` | Optional: Fly Away, Mini Me, Explode, Disappear, Spin and Shrink, Spin then Vanish, Puff of Smoke, Glowing Hot. |
 | `Map` | Required. One text row per board row, top first; 3 to 20 cells each way; a short row is finished with gaps. Gaps can be anywhere (in the middle, or splitting the board into separate areas of play); at least three open cells must touch somewhere, so a group can form. |
 | `Flow` | Optional. Rows of text like the map, giving the way pieces move in each cell (below). |
 | `Links` | Optional. Cells whose pieces go to a cell somewhere else (below). |
