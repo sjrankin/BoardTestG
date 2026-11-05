@@ -16,6 +16,7 @@ func ApplyMalicious(Index: int) -> void:
 	var On := Malicious[Index]
 	match Index:
 		0:
+			SceneSetup.SetDarkSides(On)
 			if not On:
 				LightAngle = 0.0
 				SceneSetup.Sun.rotation_degrees = SceneSetup.SunDirection

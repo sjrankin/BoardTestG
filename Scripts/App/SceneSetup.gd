@@ -10,10 +10,15 @@ const FloorTiles := 40.0
 static var SceneEnvironment: Environment
 static var Sun: DirectionalLight3D
 ## The sun's own turn in degrees (pitch, yaw, roll); the Malicious spinning light adds to its yaw.
+## The ambient light normally, and while the Malicious spinning light is on: the sides the sun is not on stay dark, so the colors there are hard to tell.
+const AmbientNormal := 0.55
+const AmbientDark := 0.02
 const SunDirection := Vector3(-40, 25, 0)
 static var ReflectionSky: Sky
 static var BackgroundKind: int = Backgrounds.Kinds.Gray
 static var SpecularOn: bool = false
+## True while the Malicious spinning light is on: the sky's reflection is off too, so the sun's shadow side stays dark.
+static var DarkSides: bool = false
 static var MetallicOn: bool = false
 static var Ground: MeshInstance3D
 static var FloorMaterial: StandardMaterial3D
@@ -28,7 +33,7 @@ static func BuildEnvironment(Parent: Node) -> Camera3D:
 	Sky.background_color = SkyColor
 	Sky.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	Sky.ambient_light_color = Color(0.75, 0.75, 0.8)
-	Sky.ambient_light_energy = 0.55
+	Sky.ambient_light_energy = AmbientNormal
 	# Bloom, only for things brighter than the lit scene itself (the lightning's core).
 	Sky.glow_enabled = true
 	Sky.glow_intensity = 0.9
@@ -48,6 +53,13 @@ static func BuildEnvironment(Parent: Node) -> Camera3D:
 	CameraNode.fov = 45.0
 	Parent.add_child(CameraNode)
 	return CameraNode
+
+
+## The Malicious spinning light: with it on, almost nothing but the sun lights the pieces.
+static func SetDarkSides(On: bool) -> void:
+	DarkSides = On
+	SceneEnvironment.ambient_light_energy = AmbientDark if On else AmbientNormal
+	ApplySky()
 
 
 ## What glossy pieces reflect: a soft sky, bright above and darker below. It is only used when Specular is on, and is
@@ -95,7 +107,7 @@ static func ApplySky() -> void:
 	else:
 		SceneEnvironment.background_mode = Environment.BG_SKY
 		SceneEnvironment.sky = Drawn
-	SceneEnvironment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if SpecularOn or MetallicOn else Environment.REFLECTION_SOURCE_DISABLED
+	SceneEnvironment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY if (SpecularOn or MetallicOn) and not DarkSides else Environment.REFLECTION_SOURCE_DISABLED
 
 
 ## The floor's checkerboard: the gray squares and the darker ones. With `ClearGray` the gray squares are see-through (Sky).
